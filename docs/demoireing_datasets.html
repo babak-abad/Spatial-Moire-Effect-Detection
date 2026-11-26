@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Image Demoiréing Datasets — Reference</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+    margin: 0; padding: 24px;
+    background: #f6f8fa; color: #1f2328;
+  }
+  .wrap { max-width: 1400px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  .subtitle { color: #57606a; margin: 0 0 20px; font-size: 14px; }
+  .card { background: #fff; border: 1px solid #d0d7de; border-radius: 8px;
+          padding: 16px 20px 20px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid #d8dee4; padding: 8px 10px; vertical-align: top; text-align: left; }
+  thead th { background: #eef1f4; position: sticky; top: 0; white-space: nowrap; }
+  tbody tr:nth-child(even) { background: #fbfcfd; }
+  tbody tr:hover { background: #f0f6ff; }
+  td.dataset { font-weight: 600; white-space: nowrap; }
+  .verified { color: #1a7f37; font-weight: 600; }
+  .est { color: #9a6700; font-weight: 600; }
+  .na { color: #8c959f; }
+  .muted { color: #57606a; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 10px;
+          font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .pill.real { background: #dafbe1; color: #116329; }
+  .pill.synth { background: #ddf4ff; color: #0969da; }
+  .pill.raw { background: #fff8c5; color: #4d2d00; }
+  .pill.none { background: #eff1f3; color: #57606a; }
+  a { color: #0969da; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { background: #eff1f3; border-radius: 4px; padding: 1px 5px;
+         font-size: 12px; font-family: Consolas, "Courier New", monospace; }
+  .section { margin-top: 28px; }
+  h2 { font-size: 18px; border-bottom: 1px solid #d0d7de; padding-bottom: 6px; }
+  ul { font-size: 13.5px; line-height: 1.65; margin: 8px 0; padding-left: 22px; }
+  .cols { display: flex; gap: 32px; flex-wrap: wrap; }
+  .cols > div { flex: 1; min-width: 320px; }
+  footer { margin-top: 24px; font-size: 12px; color: #57606a; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Image Demoiréing Datasets — Reference</h1>
+  <p class="subtitle">Public datasets for image (and RAW / video) demoiréing:
+     image counts, resolution, splits, and capture methods.
+     Reference listing — download status tracked per dataset. Compiled 2026-11.</p>
+
+  <div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>#</th><th>Dataset</th><th>Year / Paper</th><th>Type</th><th>Task</th>
+        <th>Image count</th><th>Resolution</th><th>Split (train / val / test)</th>
+        <th>Capture method</th><th>Notes</th><th>Links</th><th>Downloaded</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td class="dataset">TIP-2018</td>
+        <td>2018 — Sun, Yu &amp; Wang, <em>IEEE TIP</em></td>
+        <td><span class="pill real">real</span></td>
+        <td>Image demoiréing (sRGB pairs)</td>
+        <td><span class="verified">130,299 pairs</span></td>
+        <td>High-res, variable size (PNG, ≈0.8&nbsp;MB/image on HF mirror)</td>
+        <td><span class="verified">118,448 / — / 11,851</span></td>
+        <td>Smartphone photos of screen-displayed content across multiple
+            phone × display combinations; aligned moiré / clean pairs</td>
+        <td>Counts cross-checked — the paper's PSNR table row sums match exactly;
+            HF mirror: <code>zxbsmk/TIP-2018</code></td>
+        <td><a href="https://huggingface.co/datasets/zxbsmk/TIP-2018">HF mirror</a></td>
+        <td><span class="na">No</span></td>
+      </tr>
+
+      <tr>
+        <td>2</td>
+        <td class="dataset">LCDMoire</td>
+        <td>2019 — Yuan, Timofte, Slabaugh &amp; Leonardis, arXiv 1911.02498
+            (<em>AIM 2019 Challenge on Image Demoireing: Dataset and Study</em>,
+            ICCV&nbsp;2019 Workshops)</td>
+        <td><span class="pill synth">synthetic</span></td>
+        <td>Image demoiréing (sRGB pairs)</td>
+        <td><span class="verified">10,200 pairs</span></td>
+        <td><span class="verified">1024 × 1024</span></td>
+        <td><span class="verified">10,000 / 100 / 100</span></td>
+        <td>Physical imaging model: LCD sub-pixel layout × camera CFA sampling</td>
+        <td>First widely used fully synthetic moiré dataset. Official ETH download
+            links are dead (404); full copy only via Baidu Pan mirror (login) or
+            CodaLab registration — local copy is a 3,160-pair JPEG community
+            subset</td>
+        <td><a href="https://arxiv.org/abs/1911.02498">arXiv</a> ·
+            <a href="https://competitions.codalab.org/competitions/20165">CodaLab</a> ·
+            <a href="https://pan.baidu.com/s/1Nya-Hd_nfIa8WLfzs44gKQ">Baidu mirror</a>
+            <span class="muted">(code&nbsp;1234)</span> ·
+            <a href="datasets/LCDMoire/">local copy</a></td>
+        <td><span class="verified">Yes — partial</span><br>
+            <span class="muted">3,160-pair JPEG subset in
+            <a href="datasets/LCDMoire/">datasets/LCDMoire/</a></span></td>
+      </tr>
+
+      <tr>
+        <td>3</td>
+        <td class="dataset">CFAMoire</td>
+        <td>2020 — NTIRE 2020 Image Demoiréing Challenge (CVPRW), Track&nbsp;1</td>
+        <td><span class="pill synth">synthetic</span></td>
+        <td>Image demoiréing (sRGB pairs)</td>
+        <td><span class="verified">11,000 pairs</span></td>
+        <td><span class="na">N/A</span> <span class="muted">(512 × 512 commonly reported)</span></td>
+        <td><span class="na">N/A</span> <span class="muted">(challenge-phase split)</span></td>
+        <td>CFA-based screen-capture simulation</td>
+        <td>Track-1 challenge data; resolution &amp; split not independently
+            re-verified (Papers with Code defunct)</td>
+        <td><span class="na">N/A</span></td>
+        <td><span class="na">No</span></td>
+      </tr>
+
+      <tr>
+        <td>4</td>
+        <td class="dataset">FHDMi</td>
+        <td>2020 — He et&nbsp;al., ECCV 2020 (FHDe2Net),
+            DOI 10.1007/978-3-030-58542-6_43</td>
+        <td><span class="pill real">real</span></td>
+        <td>Image demoiréing (FHD pairs)</td>
+        <td><span class="est">≈ 12,500 pairs</span> <span class="muted">(estimate)</span></td>
+        <td><span class="verified">1920 × 1080 (1080p)</span></td>
+        <td><span class="na">N/A</span> <span class="muted">(10,000 / 2,500 commonly cited)</span></td>
+        <td>Photos of screen-displayed content; aligned moiré / clean pairs</td>
+        <td>1080p confirmed via UHDM paper's dataset comparison ("highest resolution
+            in current public demoiréing datasets"); exact count / split unverified
+            (data distributed via Baidu / Google Drive)</td>
+        <td><a href="https://doi.org/10.1007/978-3-030-58542-6_43">DOI</a></td>
+        <td><span class="na">No</span></td>
+      </tr>
+
+      <tr>
+        <td>5</td>
+        <td class="dataset">UHDM</td>
+        <td>2022 — Yu et&nbsp;al., ECCV 2022 (ESDNet), arXiv 2207.09935</td>
+        <td><span class="pill real">real</span></td>
+        <td>Image demoiréing (4K UHD pairs)</td>
+        <td><span class="verified">5,000 pairs</span></td>
+        <td><span class="verified">4K — benchmark 3840 × 2160 (center-crop);
+            native 4032 × 3024 – 4624 × 3472</span></td>
+        <td><span class="verified">4,500 / — / 500</span> <span class="muted">(random)</span></td>
+        <td>Smartphones on a DJI OM&nbsp;5 gimbal photographing displays;
+            multiple phones × display panels, varied camera views</td>
+        <td>First real 4K demoiréing dataset; all stats confirmed from the
+            paper and the official project page</td>
+        <td><a href="https://arxiv.org/abs/2207.09935">arXiv</a> ·
+            <a href="https://xinyu-andy.github.io/uhdm-page/">project</a></td>
+        <td><span class="na">No</span></td>
+      </tr>
+
+      <tr>
+        <td>6</td>
+        <td class="dataset">RawVDemoiré</td>
+        <td>2023 — NeurIPS 2023, arXiv 2310.20332
+            (<em>Recaptured Raw Screen Image and Video Demoiréing</em>)</td>
+        <td><span class="pill raw">real · RAW</span></td>
+        <td>RAW-domain image &amp; video demoiréing</td>
+        <td><span class="na">N/A</span></td>
+        <td>RAW sensor output <span class="na">(N/A)</span></td>
+        <td><span class="na">N/A</span></td>
+        <td>Smartphone RAW (Bayer) capture of displays; alignment via
+            alternating displayed patterns</td>
+        <td>Dataset name and venue verified; counts not extractable — dataset
+            section falls inside truncated zones of every full-text renderer;
+            GitHub README contains no stats</td>
+        <td><a href="https://arxiv.org/abs/2310.20332">arXiv</a></td>
+        <td><span class="na">No</span></td>
+      </tr>
+
+      <tr>
+        <td>7</td>
+        <td class="dataset">TMM-2022 raw image pairs</td>
+        <td>2022 — <em>IEEE TMM</em>, raw-domain screen image demoiréing</td>
+        <td><span class="pill raw">real · RAW</span></td>
+        <td>RAW-domain image demoiréing</td>
+        <td><span class="na">N/A</span></td>
+        <td><span class="na">N/A</span></td>
+        <td><span class="na">N/A</span></td>
+        <td>Smartphone RAW capture of screens <span class="muted">(unverified)</span></td>
+        <td>Paywalled TMM publication — all stats unverified; image-only
+            companion in the RawVDemoiré line of work</td>
+        <td><span class="na">N/A</span></td>
+        <td><span class="na">No</span></td>
+      </tr>
+
+      <tr>
+        <td>8</td>
+        <td class="dataset">Moiré Pattern Dataset + MHRNID
+            <span class="muted">(UniDemoiré)</span></td>
+        <td>2025 — Yang, Sun, Peng, Yiu &amp; Ma, AAAI 2025, arXiv 2502.06324</td>
+        <td><span class="pill real">real</span> + <span class="pill synth">synthetic</span></td>
+        <td>Universal image demoiréing (data generation / synthesis)</td>
+        <td><span class="na">N/A</span> <span class="muted">(pattern &amp; image counts in paper §3)</span></td>
+        <td>High-resolution patterns / images <span class="na">(exact N/A)</span></td>
+        <td><span class="na">N/A</span></td>
+        <td>Pattern-only: mobile-phone videos of moiré on pure-white screens,
+            frames uniformly extracted; diversity from zoom rate, camera type,
+            CMOS and screen panel (device count doubled vs. prior datasets).
+            MHRNID = Mixed High-Resolution Natural Image Dataset (clean images);
+            diffusion-based generator expands pattern diversity</td>
+        <td>No moiré / clean pairing needed; MHRNID avoids train–test overlap;
+            used for zero-shot and cross-domain training</td>
+        <td><a href="https://arxiv.org/abs/2502.06324">arXiv</a> ·
+            <a href="https://github.com/4DVLab/UniDemoire">code</a> ·
+            <a href="https://yizhifengyeyzm.github.io/UniDemoire-page/">project</a></td>
+        <td><span class="na">No</span></td>
+      </tr>
+
+      <tr>
+        <td>9</td>
+        <td class="dataset">UnDeM <span class="muted">(method — no new dataset)</span></td>
+        <td>2024 — Zhong et&nbsp;al., AAAI 2024, arXiv 2401.02719</td>
+        <td><span class="pill none">—</span></td>
+        <td>Unpaired image demoiréing (synthesis)</td>
+        <td><span class="na">—</span> <span class="muted">(reuses FHDMi / UHDM moiré images
+            plus unpaired clean images)</span></td>
+        <td><span class="na">—</span></td>
+        <td><span class="na">—</span></td>
+        <td>Pseudo-moiré synthesis from real moiré patches grouped by complexity</td>
+        <td>Generates training pairs without real alignment; benchmarked on
+            FHDMi and UHDM</td>
+        <td><a href="https://arxiv.org/abs/2401.02719">arXiv</a> ·
+            <a href="https://github.com/zysxmu/UnDeM">code</a></td>
+        <td><span class="na">No</span></td>
+      </tr>
+
+    </tbody>
+  </table>
+  </div>
+  <div class="section">
+    <h2>Unverified / excluded entries</h2>
+    <ul>
+      <li><strong>DailyMoiré130</strong> — exact-phrase web search returned no relevant
+          matches; existence, size and venue could not be verified. Excluded from the main table.</li>
+      <li><strong>MOPN</strong>, <strong>TextMoire</strong>, <strong>MFIR</strong> —
+          could not be verified (search channels unavailable); excluded.</li>
+    </ul>
+  </div>
+
+  <div class="section cols">
+    <div>
+      <h2>Legend</h2>
+      <ul>
+        <li><span class="verified">Green</span> — verified from the paper, its arXiv / ar5iv
+            full text, or the official project page.</li>
+        <li><span class="est">Amber ≈</span> — estimate or commonly cited figure,
+            not independently verified.</li>
+        <li><span class="na">N/A</span> — not verified; left as N/A rather than guessed.</li>
+        <li><span class="pill real">real</span> / <span class="pill synth">synthetic</span> /
+            <span class="pill raw">RAW</span> — data provenance.</li>
+        <li><span class="verified">Downloaded</span> — whether a local copy exists
+            under <code>datasets/</code>.</li>
+      </ul>
+    </div>
+    <div>
+      <h2>Provenance notes</h2>
+      <ul>
+        <li>TIP-2018 counts cross-checked against the paper's per-class PSNR table
+            (row sums match 118,448 / 11,851 exactly).</li>
+        <li>UHDM stats confirmed on the official project page (5,000 pairs; random
+            4,500 / 500 split; DJI OM&nbsp;5 gimbal capture).</li>
+        <li>Papers with Code is defunct (redirects to Hugging Face), so challenge /
+            leaderboard links are unavailable.</li>
+        <li>LCDMoire: official ETH links verified dead (404) in 2026-11; the full
+            10,200-pair copy exists only on a Baidu Pan mirror (verified listing:
+            Training.zip 4.27&nbsp;GB plus two validation zips; login required).
+            The local copy in <code>datasets/LCDMoire/</code> is a login-free
+            community subset (3,160 JPEG pairs, 1024 × 1024).</li>
+        <li>Sources: arXiv native HTML, ar5iv, OpenAlex, DBLP (blocked), official
+            project pages, GitHub issue threads (LCDMoire mirror discovery).
+            Dataset binaries are not tracked in git (see .gitignore).</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>
+    Static reference page — no JavaScript required. Compiled 2026-11;
+    LCDMoire download status updated 2026-11 (partial local copy:
+    datasets/LCDMoire/).
+  </footer>
+
+</div>
+</body>
+</html>

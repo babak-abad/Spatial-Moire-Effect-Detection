@@ -1,0 +1,1 @@
+"""Spatial moiré effect detection package."""

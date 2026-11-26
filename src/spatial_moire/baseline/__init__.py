@@ -1,0 +1,1 @@
+"""Deep-learning baseline for moiré detection: fine-tuned ImageNet ResNet-18."""

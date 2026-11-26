@@ -221,3 +221,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local dataset copies (large binaries — track only the README.md files)
+datasets/**
+!datasets/**/
+!datasets/**/README.md
+
+# Trained model checkpoints (binary artifacts — keep docs, plots and JSON reports)
+results/**/*.pt

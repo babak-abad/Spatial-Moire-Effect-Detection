@@ -10,8 +10,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-SRC_ROOT = REPO_ROOT / "src"
+SRC_ROOT = Path(__file__).resolve().parent
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
@@ -28,18 +27,28 @@ from spatial_moire.baseline.metrics import (  # noqa: E402
     save_metrics_json,
 )
 from spatial_moire.baseline.model import build_resnet18_classifier, load_model_checkpoint  # noqa: E402
-
-DEFAULT_DATA_DIR = REPO_ROOT / "datasets" / "LCDMoire" / "my_dataset_final"
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "results" / "baseline_resnet18"
+from spatial_moire.config import (  # noqa: E402
+    BEST_MODEL_FILENAME,
+    CLASSIFICATION_THRESHOLD,
+    CONFUSION_MATRIX_FILENAME,
+    DEFAULT_DATA_DIR,
+    DEFAULT_OUTPUT_DIR,
+    EVAL_BATCH_SIZE,
+    EVAL_NUM_WORKERS,
+    MOIRE_LABEL,
+    PIN_MEMORY,
+    TEST_METRICS_FILENAME,
+    TEST_SPLIT_DIR,
+)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate the moire detection baseline on the test split.")
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--num-workers", type=int, default=4)
-    parser.add_argument("--threshold", type=float, default=0.5)
+    parser.add_argument("--batch-size", type=int, default=EVAL_BATCH_SIZE)
+    parser.add_argument("--num-workers", type=int, default=EVAL_NUM_WORKERS)
+    parser.add_argument("--threshold", type=float, default=CLASSIFICATION_THRESHOLD)
     return parser.parse_args()
 
 
@@ -48,14 +57,14 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"device: {device}", flush=True)
 
-    checkpoint_path = args.output_dir / "best_model.pt"
+    checkpoint_path = args.output_dir / BEST_MODEL_FILENAME
     model = build_resnet18_classifier(pretrained=False)
     checkpoint = load_model_checkpoint(model=model, checkpoint_path=checkpoint_path)
     model = model.to(device=device)
     print(f"loaded checkpoint from epoch {checkpoint['epoch']} (val F1 = {checkpoint['val_f1']:.4f})", flush=True)
 
-    test_samples = collect_test_samples(test_dir=args.data_dir / "test")
-    test_positives = sum(1 for sample in test_samples if sample["label"] == 1)
+    test_samples = collect_test_samples(test_dir=args.data_dir / TEST_SPLIT_DIR)
+    test_positives = sum(1 for sample in test_samples if sample["label"] == MOIRE_LABEL)
     print(
         f"test: {len(test_samples)} samples ({test_positives} moire / {len(test_samples) - test_positives} clean)",
         flush=True,
@@ -66,7 +75,7 @@ def main() -> None:
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
-        pin_memory=True,
+        pin_memory=PIN_MEMORY,
     )
     criterion = nn.BCEWithLogitsLoss()
     test_stats = evaluate(model=model, loader=test_loader, criterion=criterion, device=device)
@@ -78,11 +87,11 @@ def main() -> None:
     )
     metrics["test_loss"] = test_stats["loss"]
     metrics["checkpoint_epoch"] = int(checkpoint["epoch"])
-    save_metrics_json(metrics=metrics, path=args.output_dir / "test_metrics.json")
+    save_metrics_json(metrics=metrics, path=args.output_dir / TEST_METRICS_FILENAME)
     plot_confusion_matrix(
         labels=test_stats["labels"],
         probabilities=test_stats["probabilities"],
-        output_path=args.output_dir / "confusion_matrix.png",
+        output_path=args.output_dir / CONFUSION_MATRIX_FILENAME,
         threshold=args.threshold,
     )
     print(classification_report_text(labels=test_stats["labels"], probabilities=test_stats["probabilities"], threshold=args.threshold))

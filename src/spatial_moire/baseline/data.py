@@ -9,13 +9,30 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
 
-IMAGENET_MEAN = (0.485, 0.456, 0.406)
-IMAGENET_STD = (0.229, 0.224, 0.225)
-IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff")
-POSITIVES_DIR = "moire"
-NEGATIVES_DIR = "gt"
-MOIRE_LABEL = 1
-CLEAN_LABEL = 0
+from spatial_moire.config import (
+    CLEAN_LABEL,
+    COLOR_JITTER_BRIGHTNESS,
+    COLOR_JITTER_CONTRAST,
+    COLOR_JITTER_HUE,
+    COLOR_JITTER_SATURATION,
+    DEFAULT_SEED,
+    EVAL_CROP_SIZE,
+    EVAL_RESIZE_SIZE,
+    IMAGENET_MEAN,
+    IMAGENET_STD,
+    IMAGE_EXTENSIONS,
+    JSON_ENCODING,
+    JSON_INDENT,
+    MOIRE_LABEL,
+    NEGATIVES_DIR,
+    POSITIVES_DIR,
+    RANDOM_RESIZED_CROP_SCALE,
+    TRAIN_CROP_SIZE,
+    VAL_FRACTION,
+)
+
+# Dataset-layout and label constants are re-exported from config for backward
+# compatibility with existing imports of this module.
 
 
 def list_image_files(directory: Path) -> list[Path]:
@@ -41,8 +58,8 @@ def samples_from_pairs(pairs: list[tuple[Path, Path]]) -> list[dict[str, Any]]:
 
 def split_train_val(
     train_dir: Path,
-    val_fraction: float = 0.2,
-    seed: int = 42,
+    val_fraction: float = VAL_FRACTION,
+    seed: int = DEFAULT_SEED,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     pairs = list_pairs(split_dir=train_dir)
     random.Random(seed).shuffle(pairs)
@@ -60,8 +77,8 @@ def save_split_manifest(
     train_samples: list[dict[str, Any]],
     val_samples: list[dict[str, Any]],
     path: Path,
-    seed: int = 42,
-    val_fraction: float = 0.2,
+    seed: int = DEFAULT_SEED,
+    val_fraction: float = VAL_FRACTION,
 ) -> None:
     manifest = {
         "seed": seed,
@@ -72,7 +89,7 @@ def save_split_manifest(
         "val": val_samples,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(data=json.dumps(manifest, indent=2), encoding="utf-8")
+    path.write_text(data=json.dumps(manifest, indent=JSON_INDENT), encoding=JSON_ENCODING)
 
 
 class moire_dataset(Dataset):
@@ -91,20 +108,28 @@ class moire_dataset(Dataset):
         return image, int(sample["label"])
 
 
-def build_train_transform(crop_size: int = 224) -> transforms.Compose:
+def build_train_transform(crop_size: int = TRAIN_CROP_SIZE) -> transforms.Compose:
     return transforms.Compose(
         [
-            transforms.RandomResizedCrop(size=crop_size, scale=(0.6, 1.0)),
+            transforms.RandomResizedCrop(size=crop_size, scale=RANDOM_RESIZED_CROP_SCALE),
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(),
-            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.1, hue=0.02),
+            transforms.ColorJitter(
+                brightness=COLOR_JITTER_BRIGHTNESS,
+                contrast=COLOR_JITTER_CONTRAST,
+                saturation=COLOR_JITTER_SATURATION,
+                hue=COLOR_JITTER_HUE,
+            ),
             transforms.ToTensor(),
             transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
         ]
     )
 
 
-def build_eval_transform(resize_size: int = 256, crop_size: int = 224) -> transforms.Compose:
+def build_eval_transform(
+    resize_size: int = EVAL_RESIZE_SIZE,
+    crop_size: int = EVAL_CROP_SIZE,
+) -> transforms.Compose:
     return transforms.Compose(
         [
             transforms.Resize(size=(resize_size, resize_size)),

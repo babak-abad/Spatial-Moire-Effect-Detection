@@ -9,6 +9,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from spatial_moire.baseline.metrics import compute_binary_metrics
+from spatial_moire.config import BEST_MODEL_FILENAME, LEARNING_RATE, TRAIN_EPOCHS, WEIGHT_DECAY
 
 
 def train_one_epoch(
@@ -76,9 +77,9 @@ def run_training(
     val_loader: DataLoader,
     device: torch.device,
     output_dir: Path,
-    epochs: int = 10,
-    learning_rate: float = 1e-4,
-    weight_decay: float = 1e-4,
+    epochs: int = TRAIN_EPOCHS,
+    learning_rate: float = LEARNING_RATE,
+    weight_decay: float = WEIGHT_DECAY,
 ) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     criterion = nn.BCEWithLogitsLoss()
@@ -96,7 +97,7 @@ def run_training(
     }
     best_f1 = -1.0
     best_epoch = 0
-    checkpoint_path = output_dir / "best_model.pt"
+    checkpoint_path = output_dir / BEST_MODEL_FILENAME
     for epoch in range(1, epochs + 1):
         started = time.perf_counter()
         train_stats = train_one_epoch(

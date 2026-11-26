@@ -12,8 +12,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-SRC_ROOT = REPO_ROOT / "src"
+SRC_ROOT = Path(__file__).resolve().parent
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
@@ -28,10 +27,28 @@ from spatial_moire.baseline.data import (  # noqa: E402
 from spatial_moire.baseline.engine import run_training  # noqa: E402
 from spatial_moire.baseline.metrics import plot_training_history  # noqa: E402
 from spatial_moire.baseline.model import build_resnet18_classifier  # noqa: E402
+from spatial_moire.config import (  # noqa: E402
+    DEFAULT_DATA_DIR,
+    DEFAULT_OUTPUT_DIR,
+    DEFAULT_SEED,
+    HISTORY_FILENAME,
+    JSON_ENCODING,
+    JSON_INDENT,
+    LEARNING_RATE,
+    MOIRE_AUGMENT_PROB,
+    MOIRE_LABEL,
+    PIN_MEMORY,
+    TRAIN_BATCH_SIZE,
+    TRAIN_EPOCHS,
+    TRAIN_NUM_WORKERS,
+    TRAINING_CURVES_FILENAME,
+    TRAIN_SPLIT_DIR,
+    TRAIN_VAL_SPLIT_FILENAME,
+    VAL_FRACTION,
+    VAL_NUM_WORKERS_MIN,
+    WEIGHT_DECAY,
+)
 from spatial_moire.moire_types import MOIRE_TYPES, type_probabilities  # noqa: E402
-
-DEFAULT_DATA_DIR = REPO_ROOT / "datasets" / "LCDMoire" / "my_dataset_final"
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "results" / "baseline_resnet18"
 
 
 def seed_everything(seed: int) -> None:
@@ -46,14 +63,14 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train the ResNet-18 moire detection baseline on the local LCDMoire subset.")
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--learning-rate", type=float, default=1e-4)
-    parser.add_argument("--weight-decay", type=float, default=1e-4)
-    parser.add_argument("--val-fraction", type=float, default=0.2)
-    parser.add_argument("--num-workers", type=int, default=8)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--moire-augment-prob", type=float, default=0.5)
+    parser.add_argument("--epochs", type=int, default=TRAIN_EPOCHS)
+    parser.add_argument("--batch-size", type=int, default=TRAIN_BATCH_SIZE)
+    parser.add_argument("--learning-rate", type=float, default=LEARNING_RATE)
+    parser.add_argument("--weight-decay", type=float, default=WEIGHT_DECAY)
+    parser.add_argument("--val-fraction", type=float, default=VAL_FRACTION)
+    parser.add_argument("--num-workers", type=int, default=TRAIN_NUM_WORKERS)
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument("--moire-augment-prob", type=float, default=MOIRE_AUGMENT_PROB)
     parser.add_argument(
         "--moire-augment-types",
         nargs="+",
@@ -72,12 +89,12 @@ def main() -> None:
         print(f"gpu: {torch.cuda.get_device_name(device=device)}", flush=True)
 
     train_samples, val_samples = split_train_val(
-        train_dir=args.data_dir / "train",
+        train_dir=args.data_dir / TRAIN_SPLIT_DIR,
         val_fraction=args.val_fraction,
         seed=args.seed,
     )
-    train_positives = sum(1 for sample in train_samples if sample["label"] == 1)
-    val_positives = sum(1 for sample in val_samples if sample["label"] == 1)
+    train_positives = sum(1 for sample in train_samples if sample["label"] == MOIRE_LABEL)
+    val_positives = sum(1 for sample in val_samples if sample["label"] == MOIRE_LABEL)
     print(
         f"train: {len(train_samples)} samples ({train_positives} moire / {len(train_samples) - train_positives} clean)",
         flush=True,
@@ -90,7 +107,7 @@ def main() -> None:
     save_split_manifest(
         train_samples=train_samples,
         val_samples=val_samples,
-        path=args.output_dir / "train_val_split.json",
+        path=args.output_dir / TRAIN_VAL_SPLIT_FILENAME,
         seed=args.seed,
         val_fraction=args.val_fraction,
     )
@@ -125,7 +142,7 @@ def main() -> None:
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.num_workers,
-        pin_memory=True,
+        pin_memory=PIN_MEMORY,
         persistent_workers=args.num_workers > 0,
         generator=torch.Generator().manual_seed(args.seed),
     )
@@ -133,8 +150,8 @@ def main() -> None:
         dataset=val_set,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=max(2, args.num_workers // 2),
-        pin_memory=True,
+        num_workers=max(VAL_NUM_WORKERS_MIN, args.num_workers // 2),
+        pin_memory=PIN_MEMORY,
         persistent_workers=True,
     )
 
@@ -150,9 +167,9 @@ def main() -> None:
         weight_decay=args.weight_decay,
     )
 
-    history_path = args.output_dir / "history.json"
-    history_path.write_text(data=json.dumps(history, indent=2), encoding="utf-8")
-    plot_training_history(history=history, output_path=args.output_dir / "training_curves.png")
+    history_path = args.output_dir / HISTORY_FILENAME
+    history_path.write_text(data=json.dumps(history, indent=JSON_INDENT), encoding=JSON_ENCODING)
+    plot_training_history(history=history, output_path=args.output_dir / TRAINING_CURVES_FILENAME)
     print(f"best epoch: {history['best_epoch']} | best val F1: {history['best_val_f1']:.4f}", flush=True)
     print(f"outputs written to {args.output_dir}", flush=True)
 

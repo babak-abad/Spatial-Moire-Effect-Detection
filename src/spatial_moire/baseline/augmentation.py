@@ -10,6 +10,7 @@ from torch.utils.data import get_worker_info
 from torchvision import transforms
 
 from spatial_moire.baseline.data import CLEAN_LABEL, MOIRE_LABEL, moire_dataset
+from spatial_moire.config import DEFAULT_SEED, MOIRE_AUGMENT_PROB, PIXEL_VALUE_MAX
 from spatial_moire.moire_types import MOIRE_TYPES, generator_names_for_type, sample_moire_type
 from spatial_moire.synthesis.augment import MOIRE_GENERATORS
 
@@ -30,9 +31,9 @@ class augmented_moire_dataset(moire_dataset):
         self,
         samples: list[dict[str, Any]],
         transform: transforms.Compose | None = None,
-        augment_prob: float = 0.5,
+        augment_prob: float = MOIRE_AUGMENT_PROB,
         type_names: list[str] | None = None,
-        seed: int = 42,
+        seed: int = DEFAULT_SEED,
     ) -> None:
         super().__init__(samples=samples, transform=transform)
         if not 0.0 <= augment_prob <= 1.0:
@@ -66,9 +67,9 @@ class augmented_moire_dataset(moire_dataset):
     def _augment(self, image: Image.Image, rng: np.random.Generator) -> Image.Image:
         type_name = sample_moire_type(rng=rng, type_names=self.type_names)
         generator_name = str(rng.choice(a=generator_names_for_type(type_name=type_name)))
-        array = np.asarray(image, dtype=np.float32) / 255.0
+        array = np.asarray(image, dtype=np.float32) / PIXEL_VALUE_MAX
         augmented, _params = MOIRE_GENERATORS[generator_name](image=array, rng=rng)
-        data = (np.clip(a=augmented, a_min=0.0, a_max=1.0) * 255.0).round().astype(dtype=np.uint8)
+        data = (np.clip(a=augmented, a_min=0.0, a_max=1.0) * PIXEL_VALUE_MAX).round().astype(dtype=np.uint8)
         return Image.fromarray(obj=data)
 
     def __getitem__(self, index: int) -> tuple[Any, int]:

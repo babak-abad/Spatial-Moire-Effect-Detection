@@ -8,17 +8,41 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-import matplotlib
+SRC_ROOT = Path(__file__).resolve().parent
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib  # noqa: E402
 import numpy as np  # noqa: E402
 from PIL import Image  # noqa: E402
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-SRC_ROOT = REPO_ROOT / "src"
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
+from spatial_moire.config import (  # noqa: E402
+    DEFAULT_SAMPLING_MODE,
+    DEFAULT_SEED,
+    DEFAULT_SOURCE_DIR,
+    DRAWN_PREVIEW_ROW_HEIGHT,
+    IMAGE_EXTENSIONS,
+    JPEG_QUALITY,
+    JSON_ENCODING,
+    JSON_INDENT,
+    MATPLOTLIB_BACKEND,
+    MAX_DRAWN_PREVIEW_IMAGES,
+    NUM_SAMPLE_IMAGES,
+    NUM_VARIANTS,
+    PIXEL_VALUE_MAX,
+    PREVIEW_CELL_SIZE,
+    PREVIEW_DPI,
+    PREVIEW_DRAWN_FILENAME,
+    PREVIEW_GRID_FILENAME,
+    PREVIEW_LABEL_FONTSIZE,
+    PREVIEW_TITLE_FONTSIZE,
+    SAMPLES_OUTPUT_DIR,
+    SAMPLING_MODES,
+    SYNTHESIS_MANIFEST_FILENAME,
+)
+
+matplotlib.use(MATPLOTLIB_BACKEND)
+import matplotlib.pyplot as plt  # noqa: E402
 
 from spatial_moire.moire_types import (  # noqa: E402
     MOIRE_TYPES,
@@ -28,18 +52,14 @@ from spatial_moire.moire_types import (  # noqa: E402
 )
 from spatial_moire.synthesis.augment import MOIRE_GENERATORS  # noqa: E402
 
-DEFAULT_SOURCE_DIR = REPO_ROOT / "datasets" / "LCDMoire" / "my_dataset_final" / "test" / "gt"
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "outputs"
-IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff")
-
 
 def load_image(path: Path) -> np.ndarray:
     image = Image.open(fp=path).convert(mode="RGB")
-    return np.asarray(image, dtype=np.float32) / 255.0
+    return np.asarray(image, dtype=np.float32) / PIXEL_VALUE_MAX
 
 
 def save_image(array: np.ndarray, path: Path, jpeg_quality: int) -> None:
-    data = (np.clip(a=array, a_min=0.0, a_max=1.0) * 255.0).round().astype(dtype=np.uint8)
+    data = (np.clip(a=array, a_min=0.0, a_max=1.0) * PIXEL_VALUE_MAX).round().astype(dtype=np.uint8)
     Image.fromarray(obj=data).save(fp=path, quality=jpeg_quality)
 
 
@@ -52,10 +72,15 @@ def build_preview_grid(
     type_names = list(moire_by_type.keys())
     rows = len(clean_images)
     columns = 1 + len(type_names)
-    figure, axes = plt.subplots(nrows=rows, ncols=columns, figsize=(columns * 2.4, rows * 2.4), squeeze=False)
+    figure, axes = plt.subplots(
+        nrows=rows,
+        ncols=columns,
+        figsize=(columns * PREVIEW_CELL_SIZE, rows * PREVIEW_CELL_SIZE),
+        squeeze=False,
+    )
     for row in range(rows):
         axes[row][0].imshow(X=clean_images[row])
-        axes[row][0].set_ylabel(ylabel=f"source {row + 1}", fontsize=9)
+        axes[row][0].set_ylabel(ylabel=f"source {row + 1}", fontsize=PREVIEW_LABEL_FONTSIZE)
         for column, type_name in enumerate(type_names, start=1):
             axes[row][column].imshow(X=moire_by_type[type_name][row])
         for axis in axes[row]:
@@ -63,9 +88,9 @@ def build_preview_grid(
             axis.set_yticks(ticks=[])
     labels = ["clean", *type_names]
     for column, label in enumerate(labels):
-        axes[0][column].set_title(label=label, fontsize=10)
+        axes[0][column].set_title(label=label, fontsize=PREVIEW_TITLE_FONTSIZE)
     figure.tight_layout()
-    figure.savefig(fname=output_path, dpi=110)
+    figure.savefig(fname=output_path, dpi=PREVIEW_DPI)
     plt.close(fig=figure)
 
 
@@ -82,23 +107,28 @@ def render_moire_type(
 
 def build_drawn_preview(images: list[np.ndarray], labels: list[str], output_path: Path) -> None:
     """Save a single-row preview of weighted-mode samples labeled by drawn type."""
-    figure, axes = plt.subplots(nrows=1, ncols=len(images), figsize=(len(images) * 2.4, 2.6), squeeze=False)
+    figure, axes = plt.subplots(
+        nrows=1,
+        ncols=len(images),
+        figsize=(len(images) * PREVIEW_CELL_SIZE, DRAWN_PREVIEW_ROW_HEIGHT),
+        squeeze=False,
+    )
     for column, (image, label) in enumerate(zip(images, labels)):
         axes[0][column].imshow(X=image)
-        axes[0][column].set_title(label=label, fontsize=9)
+        axes[0][column].set_title(label=label, fontsize=PREVIEW_LABEL_FONTSIZE)
         axes[0][column].set_xticks(ticks=[])
         axes[0][column].set_yticks(ticks=[])
     figure.tight_layout()
-    figure.savefig(fname=output_path, dpi=110)
+    figure.savefig(fname=output_path, dpi=PREVIEW_DPI)
     plt.close(fig=figure)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate moire-augmented samples from clean images.")
     parser.add_argument("--source-dir", type=Path, default=DEFAULT_SOURCE_DIR)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--num-images", type=int, default=4)
-    parser.add_argument("--variants", type=int, default=1)
+    parser.add_argument("--output-dir", type=Path, default=SAMPLES_OUTPUT_DIR)
+    parser.add_argument("--num-images", type=int, default=NUM_SAMPLE_IMAGES)
+    parser.add_argument("--variants", type=int, default=NUM_VARIANTS)
     parser.add_argument(
         "--types",
         nargs="+",
@@ -107,12 +137,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--sampling",
-        choices=("grid", "weighted"),
-        default="grid",
+        choices=SAMPLING_MODES,
+        default=DEFAULT_SAMPLING_MODE,
         help="grid: one sample per selected type per image; weighted: draw each type by weight / total_weight",
     )
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--jpeg-quality", type=int, default=95)
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument("--jpeg-quality", type=int, default=JPEG_QUALITY)
     return parser.parse_args()
 
 
@@ -183,7 +213,7 @@ def main() -> None:
                 drawn_images.append(moire_image)
                 drawn_types.append(type_name)
                 print(f"wrote {output_name}", flush=True)
-    manifest_path = args.output_dir / "moire_synthesis_params.json"
+    manifest_path = args.output_dir / SYNTHESIS_MANIFEST_FILENAME
     manifest_path.write_text(
         data=json.dumps(
             {
@@ -193,23 +223,23 @@ def main() -> None:
                 "type_probabilities": probabilities,
                 "entries": manifest,
             },
-            indent=2,
+            indent=JSON_INDENT,
         ),
-        encoding="utf-8",
+        encoding=JSON_ENCODING,
     )
     if args.sampling == "grid":
         build_preview_grid(
             clean_images=clean_images,
             moire_by_type=moire_by_type,
-            output_path=args.output_dir / "preview_grid.png",
+            output_path=args.output_dir / PREVIEW_GRID_FILENAME,
         )
     else:
-        preview_count = min(8, len(drawn_images))
+        preview_count = min(MAX_DRAWN_PREVIEW_IMAGES, len(drawn_images))
         if preview_count > 0:
             build_drawn_preview(
                 images=drawn_images[:preview_count],
                 labels=drawn_types[:preview_count],
-                output_path=args.output_dir / "preview_drawn.png",
+                output_path=args.output_dir / PREVIEW_DRAWN_FILENAME,
             )
     type_counts = Counter(entry["type"] for entry in manifest)
     distribution = ", ".join(

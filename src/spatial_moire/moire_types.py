@@ -1,7 +1,8 @@
 """Weighted registry of moire effect types.
 
 Each type documents its physical cause and visual signature and carries a
-prevalence weight. The possibility (sampling probability) of each type is
+prevalence weight (values live in spatial_moire.config.MOIRE_TYPE_WEIGHTS).
+The possibility (sampling probability) of each type is
 weight / total_weight across the active selection, mirroring
 docs/moire_types.md.
 """
@@ -12,6 +13,8 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
+
+from spatial_moire.config import MOIRE_TYPE_WEIGHTS
 
 
 @dataclass(frozen=True)
@@ -34,7 +37,7 @@ MOIRE_TYPES: dict[str, moire_type_info] = {
         category="grid_interaction",
         cause="screen pixel pitch projected onto the sensor roughly equals the sensor pixel pitch (beat frequency)",
         appearance="coarse wavy bands, worm-like or cellular blobs, honeycomb lattices, a faint floating watermark",
-        weight=24.0,
+        weight=MOIRE_TYPE_WEIGHTS["pixel_grid"],
         generator_names=("linear_beating", "screen_shoot"),
     ),
     "color": moire_type_info(
@@ -43,7 +46,7 @@ MOIRE_TYPES: dict[str, moire_type_info] = {
         category="grid_interaction",
         cause="LCD RGB subpixel stripes alias against the camera Bayer CFA, which samples R, G and B apart",
         appearance="magenta/green or cyan/red fringes, rainbow blotches, colored bands that shift with camera motion",
-        weight=20.0,
+        weight=MOIRE_TYPE_WEIGHTS["color"],
         generator_names=("chromatic_fringe", "screen_shoot"),
     ),
     "scanline": moire_type_info(
@@ -52,7 +55,7 @@ MOIRE_TYPES: dict[str, moire_type_info] = {
         category="display_technology",
         cause="horizontal scanlines or interlaced fields beat against the camera sensor rows",
         appearance="horizontal banding, thick venetian-blind bars, slow vertical drift; curved bands on spherical CRTs",
-        weight=6.0,
+        weight=MOIRE_TYPE_WEIGHTS["scanline"],
         generator_names=("scanline_bands",),
     ),
     "temporal": moire_type_info(
@@ -61,7 +64,7 @@ MOIRE_TYPES: dict[str, moire_type_info] = {
         category="time_domain",
         cause="refresh rate or PWM backlight dimming beats against shutter speed and rolling-shutter readout",
         appearance="horizontal brightness bands rolling up or down, moving bars on video, dark/light stripes on stills",
-        weight=8.0,
+        weight=MOIRE_TYPE_WEIGHTS["temporal"],
         generator_names=("temporal_bands",),
     ),
     "perspective": moire_type_info(
@@ -70,7 +73,7 @@ MOIRE_TYPES: dict[str, moire_type_info] = {
         category="geometry",
         cause="an oblique shooting angle makes the projected screen frequency vary across the frame (chirp)",
         appearance="curving, converging fringes: contour-line arcs, hyperbolic shapes, compression toward one side",
-        weight=12.0,
+        weight=MOIRE_TYPE_WEIGHTS["perspective"],
         generator_names=("zone_plate", "alias_warp"),
     ),
     "rotational": moire_type_info(
@@ -79,7 +82,7 @@ MOIRE_TYPES: dict[str, moire_type_info] = {
         category="geometry",
         cause="the camera is rotated slightly (even 1-2 degrees) relative to the screen pixel axes",
         appearance="rotated fringe sets; curved or hyperbolic fringes with lens distortion, the swirly monitor look",
-        weight=12.0,
+        weight=MOIRE_TYPE_WEIGHTS["rotational"],
         generator_names=("linear_beating", "screen_shoot"),
     ),
     "defocus": moire_type_info(
@@ -88,7 +91,7 @@ MOIRE_TYPES: dict[str, moire_type_info] = {
         category="modulation",
         cause="slight blur acts as a low-pass filter on the screen grid before it reaches the sensor",
         appearance="moire that appears, shifts or vanishes while racking focus; a diagnostic for sampling moire",
-        weight=8.0,
+        weight=MOIRE_TYPE_WEIGHTS["defocus"],
         generator_names=("defocus_moire",),
     ),
     "demosaic": moire_type_info(
@@ -97,7 +100,7 @@ MOIRE_TYPES: dict[str, moire_type_info] = {
         category="companion",
         cause="the demosaic algorithm guesses color from an aliased Bayer pattern",
         appearance="zipper or maze patterns, false color at edges, cross-hatching riding along with color moire",
-        weight=6.0,
+        weight=MOIRE_TYPE_WEIGHTS["demosaic"],
         generator_names=("alias_warp",),
     ),
     "nested": moire_type_info(
@@ -106,7 +109,7 @@ MOIRE_TYPES: dict[str, moire_type_info] = {
         category="recursive",
         cause="the screen displays content that itself has periodic structure (photo of a screen, stripes, halftone)",
         appearance="two superimposed moire patterns: a coarse one from the screen grid, a finer one from the content",
-        weight=4.0,
+        weight=MOIRE_TYPE_WEIGHTS["nested"],
         generator_names=("nested_moire",),
     ),
 }

@@ -13,6 +13,15 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
+from spatial_moire.config import (
+    CAPTURED_MEAN_EPSILON,
+    PIXEL_VALUE_MAX,
+    SCREEN_SHOOT_DEFAULT_SENSOR_BLUR_SIGMA,
+    SCREEN_SHOOT_DEFAULT_SUBPIXEL_BLUR_SIGMA,
+    SCREEN_SHOOT_GAIN_CLIP_RANGE,
+    SCREEN_SHOOT_SUBPIXEL_STRIDE,
+)
+
 
 def coordinate_grid(height: int, width: int) -> tuple[np.ndarray, np.ndarray]:
     grids = np.mgrid[0:height, 0:width].astype(dtype=np.float32)
@@ -109,8 +118,8 @@ def screen_shoot_moire(
     camera_scale: float,
     offset_x: float,
     offset_y: float,
-    subpixel_blur_sigma: float = 0.6,
-    sensor_blur_sigma: float = 0.4,
+    subpixel_blur_sigma: float = SCREEN_SHOOT_DEFAULT_SUBPIXEL_BLUR_SIGMA,
+    sensor_blur_sigma: float = SCREEN_SHOOT_DEFAULT_SENSOR_BLUR_SIGMA,
 ) -> np.ndarray:
     """Simulate photographing the image on an RGB-stripe LCD with a misaligned camera.
 
@@ -134,8 +143,8 @@ def screen_shoot_moire(
     angle = math.radians(camera_rotation_degrees)
     cos_angle = math.cos(angle)
     sin_angle = math.sin(angle)
-    pitch = 3.0 * camera_scale
-    columns = (3.0 * center_x + offset_x) + pitch * (cos_angle * dx - sin_angle * dy)
+    pitch = SCREEN_SHOOT_SUBPIXEL_STRIDE * camera_scale
+    columns = (SCREEN_SHOOT_SUBPIXEL_STRIDE * center_x + offset_x) + pitch * (cos_angle * dx - sin_angle * dy)
     rows = (center_y + offset_y) + pitch * (sin_angle * dx + cos_angle * dy)
     coordinates = [rows.ravel(), columns.ravel()]
     captured = np.empty(shape=(height, width, 3), dtype=np.float32)
@@ -154,7 +163,11 @@ def screen_shoot_moire(
         )
     source_means = image.mean(axis=(0, 1), keepdims=True)
     captured_means = captured.mean(axis=(0, 1), keepdims=True)
-    gains = np.clip(a=source_means / np.maximum(captured_means, 1e-6), a_min=0.25, a_max=4.0)
+    gains = np.clip(
+        a=source_means / np.maximum(captured_means, CAPTURED_MEAN_EPSILON),
+        a_min=SCREEN_SHOOT_GAIN_CLIP_RANGE[0],
+        a_max=SCREEN_SHOOT_GAIN_CLIP_RANGE[1],
+    )
     return np.clip(a=captured * gains, a_min=0.0, a_max=1.0).astype(dtype=np.float32)
 
 
@@ -169,7 +182,7 @@ def alias_warp_moire(
     beat bands.
     """
     height, width = textured_image.shape[:2]
-    array = (np.clip(a=textured_image, a_min=0.0, a_max=1.0) * 255.0).round().astype(dtype=np.uint8)
+    array = (np.clip(a=textured_image, a_min=0.0, a_max=1.0) * PIXEL_VALUE_MAX).round().astype(dtype=np.uint8)
     fill = tuple(int(value) for value in array.mean(axis=(0, 1)).round())
     pil_image = Image.fromarray(obj=array)
     pil_image = pil_image.rotate(
@@ -183,4 +196,4 @@ def alias_warp_moire(
     left = (new_size[0] - width) // 2
     top = (new_size[1] - height) // 2
     pil_image = pil_image.crop(box=(left, top, left + width, top + height))
-    return np.asarray(pil_image, dtype=np.float32) / 255.0
+    return np.asarray(pil_image, dtype=np.float32) / PIXEL_VALUE_MAX

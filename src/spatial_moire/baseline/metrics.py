@@ -15,13 +15,30 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-matplotlib.use("Agg")
+from spatial_moire.config import (
+    CLASSIFICATION_REPORT_DIGITS,
+    CLASSIFICATION_THRESHOLD,
+    CLASS_NAMES,
+    CONFUSION_MATRIX_ANNOTATION_FONTSIZE,
+    CONFUSION_MATRIX_FIGSIZE,
+    JSON_ENCODING,
+    JSON_INDENT,
+    MATPLOTLIB_BACKEND,
+    PLOT_GRID_ALPHA,
+    REPORT_DPI,
+    SCORE_AXIS_YLIM,
+    TRAINING_CURVES_FIGSIZE,
+)
+
+matplotlib.use(MATPLOTLIB_BACKEND)
 import matplotlib.pyplot as plt  # noqa: E402
 
-CLASS_NAMES = ("clean", "moire")
 
-
-def compute_binary_metrics(labels: np.ndarray, probabilities: np.ndarray, threshold: float = 0.5) -> dict:
+def compute_binary_metrics(
+    labels: np.ndarray,
+    probabilities: np.ndarray,
+    threshold: float = CLASSIFICATION_THRESHOLD,
+) -> dict:
     predictions = (probabilities >= threshold).astype(dtype=np.int64)
     matrix = confusion_matrix(y_true=labels, y_pred=predictions, labels=[0, 1])
     tn, fp, fn, tp = (int(value) for value in matrix.ravel())
@@ -44,22 +61,31 @@ def compute_binary_metrics(labels: np.ndarray, probabilities: np.ndarray, thresh
     return metrics
 
 
-def classification_report_text(labels: np.ndarray, probabilities: np.ndarray, threshold: float = 0.5) -> str:
+def classification_report_text(
+    labels: np.ndarray,
+    probabilities: np.ndarray,
+    threshold: float = CLASSIFICATION_THRESHOLD,
+) -> str:
     predictions = (probabilities >= threshold).astype(dtype=np.int64)
     return classification_report(
         y_true=labels,
         y_pred=predictions,
         target_names=list(CLASS_NAMES),
-        digits=4,
+        digits=CLASSIFICATION_REPORT_DIGITS,
         zero_division=0,
     )
 
 
-def plot_confusion_matrix(labels: np.ndarray, probabilities: np.ndarray, output_path: Path, threshold: float = 0.5) -> None:
+def plot_confusion_matrix(
+    labels: np.ndarray,
+    probabilities: np.ndarray,
+    output_path: Path,
+    threshold: float = CLASSIFICATION_THRESHOLD,
+) -> None:
     predictions = (probabilities >= threshold).astype(dtype=np.int64)
     matrix = confusion_matrix(y_true=labels, y_pred=predictions, labels=[0, 1])
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    figure, axis = plt.subplots(figsize=(5.5, 4.5))
+    figure, axis = plt.subplots(figsize=CONFUSION_MATRIX_FIGSIZE)
     image = axis.imshow(X=matrix, interpolation="nearest", cmap=plt.cm.Blues)
     figure.colorbar(mappable=image, ax=axis)
     axis.set_xticks(ticks=[0, 1])
@@ -73,22 +99,30 @@ def plot_confusion_matrix(labels: np.ndarray, probabilities: np.ndarray, output_
         for col in range(2):
             value = int(matrix[row, col])
             color = "white" if value > matrix.max() / 2 else "black"
-            axis.text(x=col, y=row, s=str(value), ha="center", va="center", color=color, fontsize=13)
-    figure.savefig(fname=output_path, dpi=150, bbox_inches="tight")
+            axis.text(
+                x=col,
+                y=row,
+                s=str(value),
+                ha="center",
+                va="center",
+                color=color,
+                fontsize=CONFUSION_MATRIX_ANNOTATION_FONTSIZE,
+            )
+    figure.savefig(fname=output_path, dpi=REPORT_DPI, bbox_inches="tight")
     plt.close(fig=figure)
 
 
 def plot_training_history(history: dict, output_path: Path) -> None:
     epochs = history["epoch"]
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    figure, (loss_axis, score_axis) = plt.subplots(nrows=1, ncols=2, figsize=(11, 4.5))
+    figure, (loss_axis, score_axis) = plt.subplots(nrows=1, ncols=2, figsize=TRAINING_CURVES_FIGSIZE)
     loss_axis.plot(epochs, history["train_loss"], marker="o", label="train loss")
     loss_axis.plot(epochs, history["val_loss"], marker="s", label="val loss")
     loss_axis.set_xlabel(xlabel="epoch")
     loss_axis.set_ylabel(ylabel="BCE loss")
     loss_axis.set_title(label="loss")
     loss_axis.legend()
-    loss_axis.grid(visible=True, alpha=0.3)
+    loss_axis.grid(visible=True, alpha=PLOT_GRID_ALPHA)
     score_axis.plot(epochs, history["train_accuracy"], marker="o", label="train accuracy")
     score_axis.plot(epochs, history["val_accuracy"], marker="s", label="val accuracy")
     score_axis.plot(epochs, history["val_f1"], marker="^", label="val F1")
@@ -97,15 +131,15 @@ def plot_training_history(history: dict, output_path: Path) -> None:
         score_axis.axvline(x=best_epoch, color="gray", linestyle="--", alpha=0.7, label="best epoch")
     score_axis.set_xlabel(xlabel="epoch")
     score_axis.set_ylabel(ylabel="score")
-    score_axis.set_ylim(bottom=0.0, top=1.05)
+    score_axis.set_ylim(bottom=SCORE_AXIS_YLIM[0], top=SCORE_AXIS_YLIM[1])
     score_axis.set_title(label="accuracy / F1")
     score_axis.legend(loc="lower right")
-    score_axis.grid(visible=True, alpha=0.3)
+    score_axis.grid(visible=True, alpha=PLOT_GRID_ALPHA)
     figure.tight_layout()
-    figure.savefig(fname=output_path, dpi=150)
+    figure.savefig(fname=output_path, dpi=REPORT_DPI)
     plt.close(fig=figure)
 
 
 def save_metrics_json(metrics: dict, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(data=json.dumps(metrics, indent=2), encoding="utf-8")
+    path.write_text(data=json.dumps(metrics, indent=JSON_INDENT), encoding=JSON_ENCODING)

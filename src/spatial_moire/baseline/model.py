@@ -6,11 +6,13 @@ import torch
 from torch import nn
 from torchvision.models import ResNet18_Weights, resnet18
 
+from spatial_moire.config import CLASSIFIER_OUT_FEATURES
+
 
 def build_resnet18_classifier(pretrained: bool = True) -> nn.Module:
     weights = ResNet18_Weights.IMAGENET1K_V1 if pretrained else None
     model = resnet18(weights=weights)
-    model.fc = nn.Linear(in_features=model.fc.in_features, out_features=1)
+    model.fc = nn.Linear(in_features=model.fc.in_features, out_features=CLASSIFIER_OUT_FEATURES)
     return model
 
 

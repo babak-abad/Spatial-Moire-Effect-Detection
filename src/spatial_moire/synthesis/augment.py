@@ -7,6 +7,61 @@ from collections.abc import Callable
 import numpy as np
 from scipy import ndimage
 
+from spatial_moire.config import (
+    ALIAS_WARP_CHANNEL_ANGLE_JITTER_RANGE,
+    ALIAS_WARP_GRID_ANGLE_RANGE,
+    ALIAS_WARP_GRID_PITCH_RANGE,
+    ALIAS_WARP_ROTATION_MAGNITUDE_RANGE,
+    ALIAS_WARP_SCALE_RANGE,
+    ALIAS_WARP_TEXTURE_STRENGTH_RANGE,
+    CHROMATIC_FRINGE_ANGLE_RANGE,
+    CHROMATIC_FRINGE_CHANNEL_ANGLE_OFFSET_RANGE,
+    CHROMATIC_FRINGE_CHANNEL_PHASE_JITTER_RANGE,
+    CHROMATIC_FRINGE_FREQUENCY_RANGE,
+    CHROMATIC_FRINGE_STRENGTH_RANGE,
+    DEFOCUS_CARRIER_ANGLE_RANGE,
+    DEFOCUS_CARRIER_FREQUENCY_RANGE,
+    DEFOCUS_DETUNE_ANGLE_RANGE,
+    DEFOCUS_DETUNE_FREQUENCY_RANGE,
+    DEFOCUS_IMAGE_BLUR_SIGMA_RANGE,
+    DEFOCUS_PATTERN_BLUR_SIGMA_RANGE,
+    DEFOCUS_STRENGTH_RANGE,
+    LINEAR_BEATING_BLUR_SIGMA_RANGE,
+    LINEAR_BEATING_CARRIER_ANGLE_RANGE,
+    LINEAR_BEATING_CARRIER_FREQUENCY_RANGE,
+    LINEAR_BEATING_DETUNE_ANGLE_RANGE,
+    LINEAR_BEATING_DETUNE_FREQUENCY_RANGE,
+    LINEAR_BEATING_STRENGTH_RANGE,
+    PHASE_RANGE,
+    RANDOM_DIRECTIONS,
+    RGB_CHANNEL_PHASE_STEP,
+    SCANLINE_BLUR_SIGMA_RANGE,
+    SCANLINE_CARRIER_ANGLE_BASE_DEGREES,
+    SCANLINE_CARRIER_ANGLE_JITTER_RANGE,
+    SCANLINE_CARRIER_FREQUENCY_RANGE,
+    SCANLINE_DETUNE_ANGLE_RANGE,
+    SCANLINE_DETUNE_FREQUENCY_RANGE,
+    SCANLINE_STRENGTH_RANGE,
+    SCREEN_SHOOT_CAMERA_ROTATION_MAGNITUDE_RANGE,
+    SCREEN_SHOOT_CAMERA_SCALE_DOWN_RANGE,
+    SCREEN_SHOOT_CAMERA_SCALE_UP_RANGE,
+    SCREEN_SHOOT_OFFSET_RANGE,
+    SCREEN_SHOOT_SCALE_UP_PROBABILITY,
+    SCREEN_SHOOT_SENSOR_BLUR_SIGMA_RANGE,
+    SCREEN_SHOOT_STRENGTH_RANGE,
+    SCREEN_SHOOT_SUBPIXEL_BLUR_SIGMA_RANGE,
+    TEMPORAL_BLUR_SIGMA_RANGE,
+    TEMPORAL_CARRIER_ANGLE_BASE_DEGREES,
+    TEMPORAL_CARRIER_ANGLE_JITTER_RANGE,
+    TEMPORAL_CARRIER_FREQUENCY_RANGE,
+    TEMPORAL_DETUNE_ANGLE_RANGE,
+    TEMPORAL_DETUNE_FREQUENCY_RANGE,
+    TEMPORAL_STRENGTH_RANGE,
+    ZONE_PLATE_CENTER_FRACTION_RANGE,
+    ZONE_PLATE_RING_COUNT_RANGE,
+    ZONE_PLATE_STRENGTH_RANGE,
+    ZONE_PLATE_SWIRL_RANGE,
+)
 from spatial_moire.synthesis.patterns import (
     alias_warp_moire,
     chromatic_fringe_pattern,
@@ -17,6 +72,11 @@ from spatial_moire.synthesis.patterns import (
 )
 
 generator_callable = Callable[[np.ndarray, np.random.Generator], tuple[np.ndarray, dict]]
+
+
+def random_range_value(rng: np.random.Generator, value_range: tuple[float, float]) -> float:
+    """Draw one uniform sample from an inclusive (low, high) config range."""
+    return float(rng.uniform(low=value_range[0], high=value_range[1]))
 
 
 def blend_moire(image: np.ndarray, pattern: np.ndarray, strength: float) -> np.ndarray:
@@ -31,14 +91,14 @@ def random_linear_beating(image: np.ndarray, rng: np.random.Generator) -> tuple[
     """Two detuned near-Nyquist gratings multiplied into a beat pattern."""
     height, width = image.shape[:2]
     params = {
-        "carrier_frequency": float(rng.uniform(low=0.32, high=0.47)),
-        "carrier_angle_degrees": float(rng.uniform(low=-30.0, high=30.0)),
-        "detune_frequency": float(rng.uniform(low=0.01, high=0.05)),
-        "detune_angle_degrees": float(rng.uniform(low=-8.0, high=8.0)),
-        "phase": float(rng.uniform(low=0.0, high=2.0 * np.pi)),
-        "detune_phase": float(rng.uniform(low=0.0, high=2.0 * np.pi)),
-        "strength": float(rng.uniform(low=0.35, high=0.7)),
-        "blur_sigma": float(rng.uniform(low=0.0, high=0.7)),
+        "carrier_frequency": random_range_value(rng=rng, value_range=LINEAR_BEATING_CARRIER_FREQUENCY_RANGE),
+        "carrier_angle_degrees": random_range_value(rng=rng, value_range=LINEAR_BEATING_CARRIER_ANGLE_RANGE),
+        "detune_frequency": random_range_value(rng=rng, value_range=LINEAR_BEATING_DETUNE_FREQUENCY_RANGE),
+        "detune_angle_degrees": random_range_value(rng=rng, value_range=LINEAR_BEATING_DETUNE_ANGLE_RANGE),
+        "phase": random_range_value(rng=rng, value_range=PHASE_RANGE),
+        "detune_phase": random_range_value(rng=rng, value_range=PHASE_RANGE),
+        "strength": random_range_value(rng=rng, value_range=LINEAR_BEATING_STRENGTH_RANGE),
+        "blur_sigma": random_range_value(rng=rng, value_range=LINEAR_BEATING_BLUR_SIGMA_RANGE),
     }
     pattern = linear_beating_pattern(
         height=height,
@@ -58,16 +118,22 @@ def random_linear_beating(image: np.ndarray, rng: np.random.Generator) -> tuple[
 def random_chromatic_fringe(image: np.ndarray, rng: np.random.Generator) -> tuple[np.ndarray, dict]:
     """Per-channel sinusoids with channel-specific phase/angle offsets (color fringes)."""
     height, width = image.shape[:2]
-    base_phase = float(rng.uniform(low=0.0, high=2.0 * np.pi))
+    base_phase = random_range_value(rng=rng, value_range=PHASE_RANGE)
     params = {
-        "frequency": float(rng.uniform(low=0.004, high=0.03)),
-        "angle_degrees": float(rng.uniform(low=-90.0, high=90.0)),
+        "frequency": random_range_value(rng=rng, value_range=CHROMATIC_FRINGE_FREQUENCY_RANGE),
+        "angle_degrees": random_range_value(rng=rng, value_range=CHROMATIC_FRINGE_ANGLE_RANGE),
         "channel_phase_offsets": tuple(
-            float(base_phase + channel * (2.0 * np.pi / 3.0) + rng.uniform(low=-0.3, high=0.3))
+            float(
+                base_phase
+                + channel * RGB_CHANNEL_PHASE_STEP
+                + random_range_value(rng=rng, value_range=CHROMATIC_FRINGE_CHANNEL_PHASE_JITTER_RANGE)
+            )
             for channel in range(3)
         ),
-        "channel_angle_offsets": tuple(float(rng.uniform(low=-4.0, high=4.0)) for _ in range(3)),
-        "strength": float(rng.uniform(low=0.25, high=0.55)),
+        "channel_angle_offsets": tuple(
+            random_range_value(rng=rng, value_range=CHROMATIC_FRINGE_CHANNEL_ANGLE_OFFSET_RANGE) for _ in range(3)
+        ),
+        "strength": random_range_value(rng=rng, value_range=CHROMATIC_FRINGE_STRENGTH_RANGE),
     }
     pattern = chromatic_fringe_pattern(
         height=height,
@@ -84,11 +150,11 @@ def random_zone_plate(image: np.ndarray, rng: np.random.Generator) -> tuple[np.n
     """Chirped concentric rings with a random center and optional swirl."""
     height, width = image.shape[:2]
     params = {
-        "ring_count": float(rng.uniform(low=10.0, high=30.0)),
-        "swirl": float(rng.uniform(low=0.0, high=4.0)),
-        "center_x": float(rng.uniform(low=0.25, high=0.75) * width),
-        "center_y": float(rng.uniform(low=0.25, high=0.75) * height),
-        "strength": float(rng.uniform(low=0.3, high=0.6)),
+        "ring_count": random_range_value(rng=rng, value_range=ZONE_PLATE_RING_COUNT_RANGE),
+        "swirl": random_range_value(rng=rng, value_range=ZONE_PLATE_SWIRL_RANGE),
+        "center_x": random_range_value(rng=rng, value_range=ZONE_PLATE_CENTER_FRACTION_RANGE) * width,
+        "center_y": random_range_value(rng=rng, value_range=ZONE_PLATE_CENTER_FRACTION_RANGE) * height,
+        "strength": random_range_value(rng=rng, value_range=ZONE_PLATE_STRENGTH_RANGE),
     }
     pattern = zone_plate_pattern(
         height=height,
@@ -102,17 +168,24 @@ def random_zone_plate(image: np.ndarray, rng: np.random.Generator) -> tuple[np.n
 
 def random_screen_shoot(image: np.ndarray, rng: np.random.Generator) -> tuple[np.ndarray, dict]:
     """Display-subpixel vs camera-grid interference simulation (color moire)."""
-    direction = float(rng.choice(a=(-1.0, 1.0)))
+    direction = float(rng.choice(a=RANDOM_DIRECTIONS))
     params = {
-        "camera_rotation_degrees": float(direction * rng.uniform(low=0.4, high=5.5)),
-        "camera_scale": float(
-            rng.uniform(low=1.02, high=1.09) if rng.random() < 0.5 else rng.uniform(low=0.93, high=0.98)
+        "camera_rotation_degrees": float(
+            direction * random_range_value(rng=rng, value_range=SCREEN_SHOOT_CAMERA_ROTATION_MAGNITUDE_RANGE)
         ),
-        "offset_x": float(rng.uniform(low=-1.5, high=1.5)),
-        "offset_y": float(rng.uniform(low=-1.5, high=1.5)),
-        "subpixel_blur_sigma": float(rng.uniform(low=0.3, high=0.8)),
-        "sensor_blur_sigma": float(rng.uniform(low=0.3, high=0.6)),
-        "strength": float(rng.uniform(low=0.7, high=0.95)),
+        "camera_scale": random_range_value(
+            rng=rng,
+            value_range=(
+                SCREEN_SHOOT_CAMERA_SCALE_UP_RANGE
+                if rng.random() < SCREEN_SHOOT_SCALE_UP_PROBABILITY
+                else SCREEN_SHOOT_CAMERA_SCALE_DOWN_RANGE
+            ),
+        ),
+        "offset_x": random_range_value(rng=rng, value_range=SCREEN_SHOOT_OFFSET_RANGE),
+        "offset_y": random_range_value(rng=rng, value_range=SCREEN_SHOOT_OFFSET_RANGE),
+        "subpixel_blur_sigma": random_range_value(rng=rng, value_range=SCREEN_SHOOT_SUBPIXEL_BLUR_SIGMA_RANGE),
+        "sensor_blur_sigma": random_range_value(rng=rng, value_range=SCREEN_SHOOT_SENSOR_BLUR_SIGMA_RANGE),
+        "strength": random_range_value(rng=rng, value_range=SCREEN_SHOOT_STRENGTH_RANGE),
     }
     captured = screen_shoot_moire(
         image=image,
@@ -131,13 +204,15 @@ def random_screen_shoot(image: np.ndarray, rng: np.random.Generator) -> tuple[np
 def random_alias_warp(image: np.ndarray, rng: np.random.Generator) -> tuple[np.ndarray, dict]:
     """Near-Nyquist colored grid warped by nearest-neighbor resampling."""
     height, width = image.shape[:2]
-    direction = float(rng.choice(a=(-1.0, 1.0)))
+    direction = float(rng.choice(a=RANDOM_DIRECTIONS))
     params = {
-        "grid_pitch": float(rng.uniform(low=2.2, high=3.8)),
-        "grid_angle_degrees": float(rng.uniform(low=-20.0, high=20.0)),
-        "texture_strength": float(rng.uniform(low=0.4, high=0.8)),
-        "scale": float(rng.uniform(low=1.02, high=1.08)),
-        "rotation_degrees": float(direction * rng.uniform(low=0.5, high=3.0)),
+        "grid_pitch": random_range_value(rng=rng, value_range=ALIAS_WARP_GRID_PITCH_RANGE),
+        "grid_angle_degrees": random_range_value(rng=rng, value_range=ALIAS_WARP_GRID_ANGLE_RANGE),
+        "texture_strength": random_range_value(rng=rng, value_range=ALIAS_WARP_TEXTURE_STRENGTH_RANGE),
+        "scale": random_range_value(rng=rng, value_range=ALIAS_WARP_SCALE_RANGE),
+        "rotation_degrees": float(
+            direction * random_range_value(rng=rng, value_range=ALIAS_WARP_ROTATION_MAGNITUDE_RANGE)
+        ),
     }
     pattern = np.empty(shape=(height, width, 3), dtype=np.float32)
     for channel in range(3):
@@ -145,8 +220,11 @@ def random_alias_warp(image: np.ndarray, rng: np.random.Generator) -> tuple[np.n
             height=height,
             width=width,
             frequency=1.0 / params["grid_pitch"],
-            angle_degrees=params["grid_angle_degrees"] + float(rng.uniform(low=-2.5, high=2.5)),
-            phase=float(rng.uniform(low=0.0, high=2.0 * np.pi)),
+            angle_degrees=(
+                params["grid_angle_degrees"]
+                + random_range_value(rng=rng, value_range=ALIAS_WARP_CHANNEL_ANGLE_JITTER_RANGE)
+            ),
+            phase=random_range_value(rng=rng, value_range=PHASE_RANGE),
         )
     textured = blend_moire(image=image, pattern=pattern, strength=params["texture_strength"])
     result = alias_warp_moire(
@@ -161,14 +239,17 @@ def random_scanline_bands(image: np.ndarray, rng: np.random.Generator) -> tuple[
     """Near-horizontal detuned gratings beating into thick venetian-blind bars."""
     height, width = image.shape[:2]
     params = {
-        "carrier_frequency": float(rng.uniform(low=0.32, high=0.47)),
-        "carrier_angle_degrees": 90.0 + float(rng.uniform(low=-3.0, high=3.0)),
-        "detune_frequency": float(rng.uniform(low=0.01, high=0.05)),
-        "detune_angle_degrees": float(rng.uniform(low=-3.0, high=3.0)),
-        "phase": float(rng.uniform(low=0.0, high=2.0 * np.pi)),
-        "detune_phase": float(rng.uniform(low=0.0, high=2.0 * np.pi)),
-        "strength": float(rng.uniform(low=0.3, high=0.6)),
-        "blur_sigma": float(rng.uniform(low=0.0, high=0.7)),
+        "carrier_frequency": random_range_value(rng=rng, value_range=SCANLINE_CARRIER_FREQUENCY_RANGE),
+        "carrier_angle_degrees": (
+            SCANLINE_CARRIER_ANGLE_BASE_DEGREES
+            + random_range_value(rng=rng, value_range=SCANLINE_CARRIER_ANGLE_JITTER_RANGE)
+        ),
+        "detune_frequency": random_range_value(rng=rng, value_range=SCANLINE_DETUNE_FREQUENCY_RANGE),
+        "detune_angle_degrees": random_range_value(rng=rng, value_range=SCANLINE_DETUNE_ANGLE_RANGE),
+        "phase": random_range_value(rng=rng, value_range=PHASE_RANGE),
+        "detune_phase": random_range_value(rng=rng, value_range=PHASE_RANGE),
+        "strength": random_range_value(rng=rng, value_range=SCANLINE_STRENGTH_RANGE),
+        "blur_sigma": random_range_value(rng=rng, value_range=SCANLINE_BLUR_SIGMA_RANGE),
     }
     pattern = linear_beating_pattern(
         height=height,
@@ -189,14 +270,17 @@ def random_temporal_bands(image: np.ndarray, rng: np.random.Generator) -> tuple[
     """Luminance-only horizontal bands (rolling-shutter / PWM beat, single-frame view)."""
     height, width = image.shape[:2]
     params = {
-        "carrier_frequency": float(rng.uniform(low=0.35, high=0.48)),
-        "carrier_angle_degrees": 90.0 + float(rng.uniform(low=-1.5, high=1.5)),
-        "detune_frequency": float(rng.uniform(low=0.004, high=0.02)),
-        "detune_angle_degrees": float(rng.uniform(low=-1.5, high=1.5)),
-        "phase": float(rng.uniform(low=0.0, high=2.0 * np.pi)),
-        "detune_phase": float(rng.uniform(low=0.0, high=2.0 * np.pi)),
-        "strength": float(rng.uniform(low=0.2, high=0.45)),
-        "blur_sigma": float(rng.uniform(low=0.0, high=0.5)),
+        "carrier_frequency": random_range_value(rng=rng, value_range=TEMPORAL_CARRIER_FREQUENCY_RANGE),
+        "carrier_angle_degrees": (
+            TEMPORAL_CARRIER_ANGLE_BASE_DEGREES
+            + random_range_value(rng=rng, value_range=TEMPORAL_CARRIER_ANGLE_JITTER_RANGE)
+        ),
+        "detune_frequency": random_range_value(rng=rng, value_range=TEMPORAL_DETUNE_FREQUENCY_RANGE),
+        "detune_angle_degrees": random_range_value(rng=rng, value_range=TEMPORAL_DETUNE_ANGLE_RANGE),
+        "phase": random_range_value(rng=rng, value_range=PHASE_RANGE),
+        "detune_phase": random_range_value(rng=rng, value_range=PHASE_RANGE),
+        "strength": random_range_value(rng=rng, value_range=TEMPORAL_STRENGTH_RANGE),
+        "blur_sigma": random_range_value(rng=rng, value_range=TEMPORAL_BLUR_SIGMA_RANGE),
     }
     pattern = linear_beating_pattern(
         height=height,
@@ -217,15 +301,15 @@ def random_defocus_moire(image: np.ndarray, rng: np.random.Generator) -> tuple[n
     """Beat pattern washed by a strong low-pass blur (focus-dependent visibility)."""
     height, width = image.shape[:2]
     params = {
-        "carrier_frequency": float(rng.uniform(low=0.32, high=0.47)),
-        "carrier_angle_degrees": float(rng.uniform(low=-25.0, high=25.0)),
-        "detune_frequency": float(rng.uniform(low=0.008, high=0.04)),
-        "detune_angle_degrees": float(rng.uniform(low=-6.0, high=6.0)),
-        "phase": float(rng.uniform(low=0.0, high=2.0 * np.pi)),
-        "detune_phase": float(rng.uniform(low=0.0, high=2.0 * np.pi)),
-        "strength": float(rng.uniform(low=0.3, high=0.6)),
-        "pattern_blur_sigma": float(rng.uniform(low=0.6, high=1.8)),
-        "image_blur_sigma": float(rng.uniform(low=0.3, high=0.9)),
+        "carrier_frequency": random_range_value(rng=rng, value_range=DEFOCUS_CARRIER_FREQUENCY_RANGE),
+        "carrier_angle_degrees": random_range_value(rng=rng, value_range=DEFOCUS_CARRIER_ANGLE_RANGE),
+        "detune_frequency": random_range_value(rng=rng, value_range=DEFOCUS_DETUNE_FREQUENCY_RANGE),
+        "detune_angle_degrees": random_range_value(rng=rng, value_range=DEFOCUS_DETUNE_ANGLE_RANGE),
+        "phase": random_range_value(rng=rng, value_range=PHASE_RANGE),
+        "detune_phase": random_range_value(rng=rng, value_range=PHASE_RANGE),
+        "strength": random_range_value(rng=rng, value_range=DEFOCUS_STRENGTH_RANGE),
+        "pattern_blur_sigma": random_range_value(rng=rng, value_range=DEFOCUS_PATTERN_BLUR_SIGMA_RANGE),
+        "image_blur_sigma": random_range_value(rng=rng, value_range=DEFOCUS_IMAGE_BLUR_SIGMA_RANGE),
     }
     pattern = linear_beating_pattern(
         height=height,

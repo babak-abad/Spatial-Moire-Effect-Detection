@@ -1,11 +1,13 @@
 """Central configuration and constants for the Spatial-Moire-Effect-Detection project.
 
 Single source of truth for every hard-coded value: repository paths, dataset
-layout, class labels, transform / training / evaluation defaults, output
-filenames, plotting settings, moire type prevalence weights and the synthesis
-randomization ranges. This module is a dependency-free leaf (it imports only
-math and pathlib), so every CLI script, package module and test can import it
-without circular-import risk.
+layout, class labels, transform / training / evaluation / DataLoader
+defaults, output filenames, plotting settings, moire type prevalence
+weights, pattern-engine constants and the synthesis randomization ranges.
+This module lives at src/config.py next to the CLI scripts and is imported as
+the top-level ``config`` module by every script, package module and test (src
+is on sys.path in all entry points). It is a dependency-free leaf (it imports
+only math and pathlib), so it can be imported without circular-import risk.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ import math
 from pathlib import Path
 
 # --- Repository paths ---------------------------------------------------------
-REPO_ROOT: Path = Path(__file__).resolve().parents[2]
+REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 SRC_ROOT: Path = REPO_ROOT / "src"
 
 # --- Dataset layout ------------------------------------------------------------
@@ -34,11 +36,13 @@ MOIRE_LABEL: int = 1
 CLEAN_LABEL: int = 0
 CLASS_NAMES: tuple[str, str] = ("clean", "moire")
 CLASSIFIER_OUT_FEATURES: int = 1
+CLASSIFICATION_LABELS: tuple[int, int] = (CLEAN_LABEL, MOIRE_LABEL)
 
 # --- Normalization and pixel values ---------------------------------------------------
 IMAGENET_MEAN: tuple[float, float, float] = (0.485, 0.456, 0.406)
 IMAGENET_STD: tuple[float, float, float] = (0.229, 0.224, 0.225)
 PIXEL_VALUE_MAX: float = 255.0
+IMAGE_COLOR_MODE: str = "RGB"
 
 # --- Transforms -------------------------------------------------------------------------
 TRAIN_CROP_SIZE: int = 224
@@ -52,13 +56,18 @@ COLOR_JITTER_HUE: float = 0.02
 
 # --- DataLoader ---------------------------------------------------------------------------
 PIN_MEMORY: bool = True
+TRAIN_SHUFFLE: bool = True
+TRAIN_PERSISTENT_WORKERS: bool = True
+VAL_PERSISTENT_WORKERS: bool = True
 VAL_NUM_WORKERS_MIN: int = 2
+VAL_NUM_WORKERS_DIVISOR: int = 2
 
 # --- Training defaults ------------------------------------------------------------------------
 DEFAULT_SEED: int = 42
 TRAIN_EPOCHS: int = 10
 TRAIN_BATCH_SIZE: int = 32
 TRAIN_NUM_WORKERS: int = 8
+TRAIN_PRETRAINED: bool = True
 VAL_FRACTION: float = 0.2
 LEARNING_RATE: float = 1e-4
 WEIGHT_DECAY: float = 1e-4
@@ -67,6 +76,7 @@ MOIRE_AUGMENT_PROB: float = 0.5
 # --- Evaluation defaults --------------------------------------------------------------------------
 EVAL_BATCH_SIZE: int = 64
 EVAL_NUM_WORKERS: int = 4
+EVAL_SHUFFLE: bool = False
 CLASSIFICATION_THRESHOLD: float = 0.5
 
 # --- Sample-generation defaults ---------------------------------------------------------------------
@@ -76,6 +86,9 @@ JPEG_QUALITY: int = 95
 SAMPLING_MODES: tuple[str, ...] = ("grid", "weighted")
 DEFAULT_SAMPLING_MODE: str = "grid"
 MAX_DRAWN_PREVIEW_IMAGES: int = 8
+# Format keys: type_name, source_stem, variant; the .jpg extension must stay
+# in sync with JPEG_QUALITY saving.
+MOIRE_SAMPLE_FILENAME_TEMPLATE: str = "moire_{type_name}__{source_stem}_v{variant:02d}.jpg"
 
 # --- Output filenames -----------------------------------------------------------------------------------
 BEST_MODEL_FILENAME: str = "best_model.pt"
@@ -123,11 +136,15 @@ MOIRE_TYPE_WEIGHTS: dict[str, float] = {
 }
 
 # --- Pattern engine constants (synthesis/patterns.py) -------------------------------------------------------------
-SCREEN_SHOOT_SUBPIXEL_STRIDE: float = 3.0
+SCREEN_SHOOT_SUBPIXEL_STRIDE: int = 3
 SCREEN_SHOOT_DEFAULT_SUBPIXEL_BLUR_SIGMA: float = 0.6
 SCREEN_SHOOT_DEFAULT_SENSOR_BLUR_SIGMA: float = 0.4
 SCREEN_SHOOT_GAIN_CLIP_RANGE: tuple[float, float] = (0.25, 4.0)
 CAPTURED_MEAN_EPSILON: float = 1e-6
+SCREEN_SHOOT_INTERPOLATION_ORDER: int = 1
+SCREEN_SHOOT_COORDINATE_MODE: str = "nearest"
+ZONE_PLATE_DEFAULT_CENTER_FRACTION: float = 0.5
+ZONE_PLATE_RADIUS_MAX_FRACTION: float = 0.5
 
 # --- Synthesis randomization ranges (synthesis/augment.py) -----------------------------------------------------------
 # Every tuple is an inclusive (low, high) range drawn once with rng.uniform.

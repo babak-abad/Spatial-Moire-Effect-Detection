@@ -15,7 +15,8 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-from spatial_moire.config import (
+from config import (
+    CLASSIFICATION_LABELS,
     CLASSIFICATION_REPORT_DIGITS,
     CLASSIFICATION_THRESHOLD,
     CLASS_NAMES,
@@ -40,7 +41,7 @@ def compute_binary_metrics(
     threshold: float = CLASSIFICATION_THRESHOLD,
 ) -> dict:
     predictions = (probabilities >= threshold).astype(dtype=np.int64)
-    matrix = confusion_matrix(y_true=labels, y_pred=predictions, labels=[0, 1])
+    matrix = confusion_matrix(y_true=labels, y_pred=predictions, labels=CLASSIFICATION_LABELS)
     tn, fp, fn, tp = (int(value) for value in matrix.ravel())
     metrics = {
         "threshold": threshold,
@@ -83,20 +84,20 @@ def plot_confusion_matrix(
     threshold: float = CLASSIFICATION_THRESHOLD,
 ) -> None:
     predictions = (probabilities >= threshold).astype(dtype=np.int64)
-    matrix = confusion_matrix(y_true=labels, y_pred=predictions, labels=[0, 1])
+    matrix = confusion_matrix(y_true=labels, y_pred=predictions, labels=CLASSIFICATION_LABELS)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     figure, axis = plt.subplots(figsize=CONFUSION_MATRIX_FIGSIZE)
     image = axis.imshow(X=matrix, interpolation="nearest", cmap=plt.cm.Blues)
     figure.colorbar(mappable=image, ax=axis)
-    axis.set_xticks(ticks=[0, 1])
+    axis.set_xticks(ticks=list(range(len(CLASS_NAMES))))
     axis.set_xticklabels(labels=CLASS_NAMES)
-    axis.set_yticks(ticks=[0, 1])
+    axis.set_yticks(ticks=list(range(len(CLASS_NAMES))))
     axis.set_yticklabels(labels=CLASS_NAMES)
     axis.set_xlabel(xlabel="predicted label")
     axis.set_ylabel(ylabel="true label")
     axis.set_title(label=f"confusion matrix (threshold = {threshold:.2f})")
-    for row in range(2):
-        for col in range(2):
+    for row in range(len(CLASSIFICATION_LABELS)):
+        for col in range(len(CLASSIFICATION_LABELS)):
             value = int(matrix[row, col])
             color = "white" if value > matrix.max() / 2 else "black"
             axis.text(

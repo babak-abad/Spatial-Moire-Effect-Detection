@@ -13,13 +13,17 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
-from spatial_moire.config import (
+from config import (
     CAPTURED_MEAN_EPSILON,
     PIXEL_VALUE_MAX,
+    SCREEN_SHOOT_COORDINATE_MODE,
     SCREEN_SHOOT_DEFAULT_SENSOR_BLUR_SIGMA,
     SCREEN_SHOOT_DEFAULT_SUBPIXEL_BLUR_SIGMA,
     SCREEN_SHOOT_GAIN_CLIP_RANGE,
+    SCREEN_SHOOT_INTERPOLATION_ORDER,
     SCREEN_SHOOT_SUBPIXEL_STRIDE,
+    ZONE_PLATE_DEFAULT_CENTER_FRACTION,
+    ZONE_PLATE_RADIUS_MAX_FRACTION,
 )
 
 
@@ -102,11 +106,14 @@ def zone_plate_pattern(
     """Chirped concentric rings with an optional angular swirl (spiral moire)."""
     ys, xs = coordinate_grid(height=height, width=width)
     if center is None:
-        center = (width * 0.5, height * 0.5)
+        center = (
+            width * ZONE_PLATE_DEFAULT_CENTER_FRACTION,
+            height * ZONE_PLATE_DEFAULT_CENTER_FRACTION,
+        )
     dx = xs - center[0]
     dy = ys - center[1]
     radius = np.hypot(dx, dy)
-    radius_max = np.hypot(width, height) * 0.5
+    radius_max = np.hypot(width, height) * ZONE_PLATE_RADIUS_MAX_FRACTION
     theta = np.arctan2(dy, dx)
     phase = 2.0 * np.pi * ring_count * (radius / radius_max) ** 2 + swirl * theta
     return (0.5 + 0.5 * np.cos(phase)).astype(dtype=np.float32)
@@ -128,10 +135,10 @@ def screen_shoot_moire(
     stripes into color moire.
     """
     height, width = image.shape[:2]
-    display = np.zeros(shape=(height, width * 3, 3), dtype=np.float32)
-    display[:, 0::3, 0] = image[:, :, 0]
-    display[:, 1::3, 1] = image[:, :, 1]
-    display[:, 2::3, 2] = image[:, :, 2]
+    display = np.zeros(shape=(height, width * SCREEN_SHOOT_SUBPIXEL_STRIDE, 3), dtype=np.float32)
+    display[:, 0::SCREEN_SHOOT_SUBPIXEL_STRIDE, 0] = image[:, :, 0]
+    display[:, 1::SCREEN_SHOOT_SUBPIXEL_STRIDE, 1] = image[:, :, 1]
+    display[:, 2::SCREEN_SHOOT_SUBPIXEL_STRIDE, 2] = image[:, :, 2]
     if subpixel_blur_sigma > 0.0:
         display = ndimage.gaussian_filter(input=display, sigma=(0.0, subpixel_blur_sigma, 0.0))
 
@@ -152,8 +159,8 @@ def screen_shoot_moire(
         sampled = ndimage.map_coordinates(
             input=display[:, :, channel],
             coordinates=coordinates,
-            order=1,
-            mode="nearest",
+            order=SCREEN_SHOOT_INTERPOLATION_ORDER,
+            mode=SCREEN_SHOOT_COORDINATE_MODE,
         )
         captured[:, :, channel] = sampled.reshape(height, width)
     if sensor_blur_sigma > 0.0:

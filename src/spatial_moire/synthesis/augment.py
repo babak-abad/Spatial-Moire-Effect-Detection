@@ -7,7 +7,7 @@ from collections.abc import Callable
 import numpy as np
 from scipy import ndimage
 
-from spatial_moire.config import (
+from config import (
     ALIAS_WARP_CHANNEL_ANGLE_JITTER_RANGE,
     ALIAS_WARP_GRID_ANGLE_RANGE,
     ALIAS_WARP_GRID_PITCH_RANGE,

@@ -14,11 +14,11 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from config import DEFAULT_DATA_DIR, IMAGE_EXTENSIONS, TRAIN_CROP_SIZE, TRAIN_SPLIT_DIR  # noqa: E402
 from spatial_moire.baseline.augmentation import augmented_moire_dataset  # noqa: E402
 from spatial_moire.baseline.data import build_train_transform  # noqa: E402
 
-TRAIN_DIR = REPO_ROOT / "datasets" / "LCDMoire" / "my_dataset_final" / "train"
-IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")
+TRAIN_DIR = DEFAULT_DATA_DIR / TRAIN_SPLIT_DIR
 NUM_SAMPLES = 6
 
 
@@ -97,8 +97,8 @@ def check_transform_pipeline_output() -> None:
     image, label = dataset[0]
     assert label == 1, "augmented clean image must carry the moire label after the train transform"
     assert isinstance(image, torch.Tensor), "train transform must return a tensor"
-    assert tuple(image.shape) == (3, 224, 224), f"unexpected tensor shape {tuple(image.shape)}"
-    print("ok: augmented images flow through the train transform as (3, 224, 224) tensors")
+    assert tuple(image.shape) == (3, TRAIN_CROP_SIZE, TRAIN_CROP_SIZE), f"unexpected tensor shape {tuple(image.shape)}"
+    print(f"ok: augmented images flow through the train transform as (3, {TRAIN_CROP_SIZE}, {TRAIN_CROP_SIZE}) tensors")
 
 
 def main() -> None:

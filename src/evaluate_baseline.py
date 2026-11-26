@@ -27,7 +27,7 @@ from spatial_moire.baseline.metrics import (  # noqa: E402
     save_metrics_json,
 )
 from spatial_moire.baseline.model import build_resnet18_classifier, load_model_checkpoint  # noqa: E402
-from spatial_moire.config import (  # noqa: E402
+from config import (  # noqa: E402
     BEST_MODEL_FILENAME,
     CLASSIFICATION_THRESHOLD,
     CONFUSION_MATRIX_FILENAME,
@@ -35,6 +35,7 @@ from spatial_moire.config import (  # noqa: E402
     DEFAULT_OUTPUT_DIR,
     EVAL_BATCH_SIZE,
     EVAL_NUM_WORKERS,
+    EVAL_SHUFFLE,
     MOIRE_LABEL,
     PIN_MEMORY,
     TEST_METRICS_FILENAME,
@@ -73,7 +74,7 @@ def main() -> None:
     test_loader = DataLoader(
         dataset=test_set,
         batch_size=args.batch_size,
-        shuffle=False,
+        shuffle=EVAL_SHUFFLE,
         num_workers=args.num_workers,
         pin_memory=PIN_MEMORY,
     )

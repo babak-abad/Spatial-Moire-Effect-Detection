@@ -27,7 +27,7 @@ from spatial_moire.baseline.data import (  # noqa: E402
 from spatial_moire.baseline.engine import run_training  # noqa: E402
 from spatial_moire.baseline.metrics import plot_training_history  # noqa: E402
 from spatial_moire.baseline.model import build_resnet18_classifier  # noqa: E402
-from spatial_moire.config import (  # noqa: E402
+from config import (  # noqa: E402
     DEFAULT_DATA_DIR,
     DEFAULT_OUTPUT_DIR,
     DEFAULT_SEED,
@@ -41,11 +41,16 @@ from spatial_moire.config import (  # noqa: E402
     TRAIN_BATCH_SIZE,
     TRAIN_EPOCHS,
     TRAIN_NUM_WORKERS,
+    TRAIN_PERSISTENT_WORKERS,
+    TRAIN_PRETRAINED,
+    TRAIN_SHUFFLE,
     TRAINING_CURVES_FILENAME,
     TRAIN_SPLIT_DIR,
     TRAIN_VAL_SPLIT_FILENAME,
     VAL_FRACTION,
+    VAL_NUM_WORKERS_DIVISOR,
     VAL_NUM_WORKERS_MIN,
+    VAL_PERSISTENT_WORKERS,
     WEIGHT_DECAY,
 )
 from spatial_moire.moire_types import MOIRE_TYPES, type_probabilities  # noqa: E402
@@ -140,22 +145,22 @@ def main() -> None:
     train_loader = DataLoader(
         dataset=train_set,
         batch_size=args.batch_size,
-        shuffle=True,
+        shuffle=TRAIN_SHUFFLE,
         num_workers=args.num_workers,
         pin_memory=PIN_MEMORY,
-        persistent_workers=args.num_workers > 0,
+        persistent_workers=args.num_workers > 0 and TRAIN_PERSISTENT_WORKERS,
         generator=torch.Generator().manual_seed(args.seed),
     )
     val_loader = DataLoader(
         dataset=val_set,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=max(VAL_NUM_WORKERS_MIN, args.num_workers // 2),
+        num_workers=max(VAL_NUM_WORKERS_MIN, args.num_workers // VAL_NUM_WORKERS_DIVISOR),
         pin_memory=PIN_MEMORY,
-        persistent_workers=True,
+        persistent_workers=VAL_PERSISTENT_WORKERS,
     )
 
-    model = build_resnet18_classifier(pretrained=True).to(device=device)
+    model = build_resnet18_classifier(pretrained=TRAIN_PRETRAINED).to(device=device)
     history = run_training(
         model=model,
         train_loader=train_loader,

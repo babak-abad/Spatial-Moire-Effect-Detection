@@ -9,7 +9,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
 
-from spatial_moire.config import (
+from config import (
     CLEAN_LABEL,
     COLOR_JITTER_BRIGHTNESS,
     COLOR_JITTER_CONTRAST,
@@ -20,6 +20,7 @@ from spatial_moire.config import (
     EVAL_RESIZE_SIZE,
     IMAGENET_MEAN,
     IMAGENET_STD,
+    IMAGE_COLOR_MODE,
     IMAGE_EXTENSIONS,
     JSON_ENCODING,
     JSON_INDENT,
@@ -102,7 +103,7 @@ class moire_dataset(Dataset):
 
     def __getitem__(self, index: int) -> tuple[Any, int]:
         sample = self.samples[index]
-        image = Image.open(sample["path"]).convert("RGB")
+        image = Image.open(sample["path"]).convert(mode=IMAGE_COLOR_MODE)
         if self.transform is not None:
             image = self.transform(image)
         return image, int(sample["label"])

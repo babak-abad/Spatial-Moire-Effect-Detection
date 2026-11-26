@@ -1,7 +1,7 @@
 """Weighted registry of moire effect types.
 
 Each type documents its physical cause and visual signature and carries a
-prevalence weight (values live in spatial_moire.config.MOIRE_TYPE_WEIGHTS).
+prevalence weight (values live in config.MOIRE_TYPE_WEIGHTS).
 The possibility (sampling probability) of each type is
 weight / total_weight across the active selection, mirroring
 docs/moire_types.md.
@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from spatial_moire.config import MOIRE_TYPE_WEIGHTS
+from config import MOIRE_TYPE_WEIGHTS
 
 
 @dataclass(frozen=True)

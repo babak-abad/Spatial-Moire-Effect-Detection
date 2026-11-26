@@ -9,7 +9,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from spatial_moire.baseline.metrics import compute_binary_metrics
-from spatial_moire.config import BEST_MODEL_FILENAME, LEARNING_RATE, TRAIN_EPOCHS, WEIGHT_DECAY
+from config import BEST_MODEL_FILENAME, LEARNING_RATE, TRAIN_EPOCHS, WEIGHT_DECAY
 
 
 def train_one_epoch(

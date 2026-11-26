@@ -6,7 +6,7 @@ import torch
 from torch import nn
 from torchvision.models import ResNet18_Weights, resnet18
 
-from spatial_moire.config import CLASSIFIER_OUT_FEATURES
+from config import CLASSIFIER_OUT_FEATURES
 
 
 def build_resnet18_classifier(pretrained: bool = True) -> nn.Module:

@@ -10,7 +10,7 @@ from torch.utils.data import get_worker_info
 from torchvision import transforms
 
 from spatial_moire.baseline.data import CLEAN_LABEL, MOIRE_LABEL, moire_dataset
-from spatial_moire.config import DEFAULT_SEED, MOIRE_AUGMENT_PROB, PIXEL_VALUE_MAX
+from config import DEFAULT_SEED, IMAGE_COLOR_MODE, MOIRE_AUGMENT_PROB, PIXEL_VALUE_MAX
 from spatial_moire.moire_types import MOIRE_TYPES, generator_names_for_type, sample_moire_type
 from spatial_moire.synthesis.augment import MOIRE_GENERATORS
 
@@ -74,7 +74,7 @@ class augmented_moire_dataset(moire_dataset):
 
     def __getitem__(self, index: int) -> tuple[Any, int]:
         sample = self.samples[index]
-        image = Image.open(sample["path"]).convert("RGB")
+        image = Image.open(sample["path"]).convert(mode=IMAGE_COLOR_MODE)
         label = int(sample["label"])
         if label == CLEAN_LABEL and self.type_names and self.augment_prob > 0.0:
             rng = self._rng()

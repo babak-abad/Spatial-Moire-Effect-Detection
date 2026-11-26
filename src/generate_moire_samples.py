@@ -16,17 +16,19 @@ import matplotlib  # noqa: E402
 import numpy as np  # noqa: E402
 from PIL import Image  # noqa: E402
 
-from spatial_moire.config import (  # noqa: E402
+from config import (  # noqa: E402
     DEFAULT_SAMPLING_MODE,
     DEFAULT_SEED,
     DEFAULT_SOURCE_DIR,
     DRAWN_PREVIEW_ROW_HEIGHT,
+    IMAGE_COLOR_MODE,
     IMAGE_EXTENSIONS,
     JPEG_QUALITY,
     JSON_ENCODING,
     JSON_INDENT,
     MATPLOTLIB_BACKEND,
     MAX_DRAWN_PREVIEW_IMAGES,
+    MOIRE_SAMPLE_FILENAME_TEMPLATE,
     NUM_SAMPLE_IMAGES,
     NUM_VARIANTS,
     PIXEL_VALUE_MAX,
@@ -54,7 +56,7 @@ from spatial_moire.synthesis.augment import MOIRE_GENERATORS  # noqa: E402
 
 
 def load_image(path: Path) -> np.ndarray:
-    image = Image.open(fp=path).convert(mode="RGB")
+    image = Image.open(fp=path).convert(mode=IMAGE_COLOR_MODE)
     return np.asarray(image, dtype=np.float32) / PIXEL_VALUE_MAX
 
 
@@ -174,7 +176,7 @@ def main() -> None:
                         type_name=type_name,
                         rng=rng,
                     )
-                    output_name = f"moire_{type_name}__{path.stem}_v{variant:02d}.jpg"
+                    output_name = MOIRE_SAMPLE_FILENAME_TEMPLATE.format(type_name=type_name, source_stem=path.stem, variant=variant)
                     save_image(array=moire_image, path=args.output_dir / output_name, jpeg_quality=args.jpeg_quality)
                     manifest.append(
                         {
@@ -197,7 +199,7 @@ def main() -> None:
                     type_name=type_name,
                     rng=rng,
                 )
-                output_name = f"moire_{type_name}__{path.stem}_v{variant:02d}.jpg"
+                output_name = MOIRE_SAMPLE_FILENAME_TEMPLATE.format(type_name=type_name, source_stem=path.stem, variant=variant)
                 save_image(array=moire_image, path=args.output_dir / output_name, jpeg_quality=args.jpeg_quality)
                 manifest.append(
                     {

@@ -17,6 +17,7 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from spatial_moire.baseline.augmentation import augmented_moire_dataset  # noqa: E402
 from spatial_moire.baseline.data import (  # noqa: E402
     build_eval_transform,
     build_train_transform,
@@ -27,6 +28,7 @@ from spatial_moire.baseline.data import (  # noqa: E402
 from spatial_moire.baseline.engine import run_training  # noqa: E402
 from spatial_moire.baseline.metrics import plot_training_history  # noqa: E402
 from spatial_moire.baseline.model import build_resnet18_classifier  # noqa: E402
+from spatial_moire.synthesis.augment import MOIRE_GENERATORS  # noqa: E402
 
 DEFAULT_DATA_DIR = REPO_ROOT / "datasets" / "LCDMoire" / "my_dataset_final"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "results" / "baseline_resnet18"
@@ -51,6 +53,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--val-fraction", type=float, default=0.2)
     parser.add_argument("--num-workers", type=int, default=8)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--moire-augment-prob", type=float, default=0.5)
+    parser.add_argument(
+        "--moire-augment-types",
+        nargs="+",
+        choices=sorted(MOIRE_GENERATORS),
+        default=None,
+    )
     return parser.parse_args()
 
 
@@ -86,7 +95,28 @@ def main() -> None:
         val_fraction=args.val_fraction,
     )
 
-    train_set = moire_dataset(samples=train_samples, transform=build_train_transform())
+    train_generator_names = (
+        sorted(MOIRE_GENERATORS) if args.moire_augment_types is None else sorted(args.moire_augment_types)
+    )
+    if args.moire_augment_prob > 0.0:
+        train_set = augmented_moire_dataset(
+            samples=train_samples,
+            transform=build_train_transform(),
+            augment_prob=args.moire_augment_prob,
+            generator_names=train_generator_names,
+            seed=args.seed,
+        )
+        expected_moire_share = (
+            train_positives + args.moire_augment_prob * (len(train_samples) - train_positives)
+        ) / len(train_samples)
+        print(
+            f"moire augmentation: clean train images augmented on the fly with probability {args.moire_augment_prob} "
+            f"via {', '.join(train_generator_names)} and relabeled as moire "
+            f"(expected moire share ~{expected_moire_share:.0%})",
+            flush=True,
+        )
+    else:
+        train_set = moire_dataset(samples=train_samples, transform=build_train_transform())
     val_set = moire_dataset(samples=val_samples, transform=build_eval_transform())
     train_loader = DataLoader(
         dataset=train_set,

@@ -10,7 +10,8 @@ from torch.utils.data import get_worker_info
 from torchvision import transforms
 
 from spatial_moire.baseline.data import CLEAN_LABEL, MOIRE_LABEL, moire_dataset
-from spatial_moire.synthesis.augment import MOIRE_GENERATORS, generator_callable
+from spatial_moire.moire_types import MOIRE_TYPES, generator_names_for_type, sample_moire_type
+from spatial_moire.synthesis.augment import MOIRE_GENERATORS
 
 
 class augmented_moire_dataset(moire_dataset):
@@ -18,8 +19,11 @@ class augmented_moire_dataset(moire_dataset):
 
     Each clean image is moire-augmented in memory with probability
     augment_prob and then carries the moire label, so an augmented image can
-    never be returned as clean. Real moire images are never augmented and
-    source files are never modified.
+    never be returned as clean. The moire type of every augmentation is drawn
+    with possibility weight / total_weight from the selected types (all nine
+    registry types by default) and rendered by one of that type's mapped
+    synthesis generators. Real moire images are never augmented and source
+    files are never modified.
     """
 
     def __init__(
@@ -27,21 +31,27 @@ class augmented_moire_dataset(moire_dataset):
         samples: list[dict[str, Any]],
         transform: transforms.Compose | None = None,
         augment_prob: float = 0.5,
-        generator_names: list[str] | None = None,
+        type_names: list[str] | None = None,
         seed: int = 42,
     ) -> None:
         super().__init__(samples=samples, transform=transform)
         if not 0.0 <= augment_prob <= 1.0:
             raise ValueError(f"augment_prob must be in [0.0, 1.0], got {augment_prob}")
-        selected_names = sorted(MOIRE_GENERATORS) if generator_names is None else sorted(generator_names)
-        unknown_names = [name for name in selected_names if name not in MOIRE_GENERATORS]
+        selected_names = list(MOIRE_TYPES) if type_names is None else list(type_names)
+        unknown_names = [name for name in selected_names if name not in MOIRE_TYPES]
         if unknown_names:
-            raise ValueError(f"unknown moire generator names: {unknown_names}")
+            raise ValueError(f"unknown moire type names: {unknown_names}")
+        referenced_generators = {
+            generator_name
+            for name in selected_names
+            for generator_name in generator_names_for_type(type_name=name)
+        }
+        missing_generators = sorted(referenced_generators - set(MOIRE_GENERATORS))
+        if missing_generators:
+            raise ValueError(f"moire types reference unknown generators: {missing_generators}")
         self.augment_prob = augment_prob
         self.seed = seed
-        self._generator_items: list[tuple[str, generator_callable]] = [
-            (name, MOIRE_GENERATORS[name]) for name in selected_names
-        ]
+        self.type_names = selected_names
         self._worker_rngs: dict[int, np.random.Generator] = {}
 
     def _rng(self) -> np.random.Generator:
@@ -54,9 +64,10 @@ class augmented_moire_dataset(moire_dataset):
         return rng
 
     def _augment(self, image: Image.Image, rng: np.random.Generator) -> Image.Image:
-        generator = self._generator_items[int(rng.integers(low=0, high=len(self._generator_items)))][1]
+        type_name = sample_moire_type(rng=rng, type_names=self.type_names)
+        generator_name = str(rng.choice(a=generator_names_for_type(type_name=type_name)))
         array = np.asarray(image, dtype=np.float32) / 255.0
-        augmented, _params = generator(image=array, rng=rng)
+        augmented, _params = MOIRE_GENERATORS[generator_name](image=array, rng=rng)
         data = (np.clip(a=augmented, a_min=0.0, a_max=1.0) * 255.0).round().astype(dtype=np.uint8)
         return Image.fromarray(obj=data)
 
@@ -64,7 +75,7 @@ class augmented_moire_dataset(moire_dataset):
         sample = self.samples[index]
         image = Image.open(sample["path"]).convert("RGB")
         label = int(sample["label"])
-        if label == CLEAN_LABEL and self._generator_items and self.augment_prob > 0.0:
+        if label == CLEAN_LABEL and self.type_names and self.augment_prob > 0.0:
             rng = self._rng()
             if rng.random() < self.augment_prob:
                 image = self._augment(image=image, rng=rng)

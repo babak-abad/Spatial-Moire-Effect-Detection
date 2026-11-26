@@ -28,7 +28,7 @@ from spatial_moire.baseline.data import (  # noqa: E402
 from spatial_moire.baseline.engine import run_training  # noqa: E402
 from spatial_moire.baseline.metrics import plot_training_history  # noqa: E402
 from spatial_moire.baseline.model import build_resnet18_classifier  # noqa: E402
-from spatial_moire.synthesis.augment import MOIRE_GENERATORS  # noqa: E402
+from spatial_moire.moire_types import MOIRE_TYPES, type_probabilities  # noqa: E402
 
 DEFAULT_DATA_DIR = REPO_ROOT / "datasets" / "LCDMoire" / "my_dataset_final"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "results" / "baseline_resnet18"
@@ -57,7 +57,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--moire-augment-types",
         nargs="+",
-        choices=sorted(MOIRE_GENERATORS),
+        choices=sorted(MOIRE_TYPES),
         default=None,
     )
     return parser.parse_args()
@@ -95,23 +95,25 @@ def main() -> None:
         val_fraction=args.val_fraction,
     )
 
-    train_generator_names = (
-        sorted(MOIRE_GENERATORS) if args.moire_augment_types is None else sorted(args.moire_augment_types)
-    )
+    train_type_names = list(MOIRE_TYPES) if args.moire_augment_types is None else sorted(args.moire_augment_types)
     if args.moire_augment_prob > 0.0:
         train_set = augmented_moire_dataset(
             samples=train_samples,
             transform=build_train_transform(),
             augment_prob=args.moire_augment_prob,
-            generator_names=train_generator_names,
+            type_names=train_type_names,
             seed=args.seed,
         )
         expected_moire_share = (
             train_positives + args.moire_augment_prob * (len(train_samples) - train_positives)
         ) / len(train_samples)
+        type_mix = ", ".join(
+            f"{name} {probability:.0%}"
+            for name, probability in type_probabilities(type_names=train_type_names).items()
+        )
         print(
             f"moire augmentation: clean train images augmented on the fly with probability {args.moire_augment_prob} "
-            f"via {', '.join(train_generator_names)} and relabeled as moire "
+            f"via weighted moire type draw ({type_mix}) and relabeled as moire "
             f"(expected moire share ~{expected_moire_share:.0%})",
             flush=True,
         )

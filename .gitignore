@@ -230,3 +230,4 @@ datasets/**
 # Trained model checkpoints (binary artifacts — keep docs, plots and JSON reports)
 results/**/*.pt
 /outputs
+/results

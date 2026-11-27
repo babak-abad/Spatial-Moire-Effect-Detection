@@ -13,6 +13,7 @@ A computer-vision project for **detecting the spatial moiré effect** — the wa
 - [Planned project structure](#planned-project-structure)
 - [Getting started](#getting-started)
 - [Usage (planned)](#usage-planned)
+- [Documentation](#documentation)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [License](#license)
@@ -34,7 +35,7 @@ flowchart LR
     B --> C
     C --> D["Spatial aliasing"]
     D --> E["Moiré pattern<br/>wavy bands and rainbow-colored fringes<br/>(much coarser than either grid)"]
-    style E fill:#fff3e0,stroke:#ef6c00
+    style E fill:#e65100,stroke:#e65100,color:#ffffff
 ```
 
 The moiré pattern acts as a **beat pattern** between the two grids — its spatial frequency equals the small difference between the screen's and the sensor's effective sampling frequencies, which is why the artifacts are far coarser than either grid.
@@ -59,8 +60,8 @@ flowchart LR
     C["Moiré artifact analysis<br/>locate periodic, wavy artifacts"]
     D["Detection result<br/>presence score, artifact mask,<br/>annotated overlay"]
     A --> B --> C --> D
-    style A fill:#e3f2fd,stroke:#1565c0
-    style D fill:#e8f5e9,stroke:#2e7d32
+    style A fill:#0d47a1,stroke:#0d47a1,color:#ffffff
+    style D fill:#1b5e20,stroke:#1b5e20,color:#ffffff
 ```
 
 The concrete detection techniques are under active development — see the [roadmap](#roadmap) for the current status.
@@ -111,6 +112,13 @@ The command-line interface is not implemented yet. The intended entry point:
 # Planned CLI (interface may change)
 python -m spatial_moire path/to/photo.jpg --output results/
 ```
+
+## Documentation
+
+Detailed design documents live in [`docs/`](docs/):
+
+- [`docs/augmentation.md`](docs/augmentation.md) — the augmentation pipeline: how clean screen photographs become labeled moiré training samples through weighted type sampling, procedural moiré synthesis, and the six seeded capture-style augmentation groups, with flow diagrams, the `apply_group_augmentation` algorithm, CLI flags, and a tuning guide.
+- [`docs/moire_types.md`](docs/moire_types.md) — the canonical catalogue of the nine moiré effect types: physical causes, visual signatures, prevalence weights, and their mapping onto the synthesis generators.
 
 ## Roadmap
 

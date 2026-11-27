@@ -18,6 +18,7 @@ from config import (  # noqa: E402
     DEFAULT_DATA_DIR,
     GROUP_AUGMENT_COUNT_RANGE,
     IMAGE_EXTENSIONS,
+    PIXEL_VALUE_MAX,
     TRAIN_CROP_SIZE,
     TRAIN_SPLIT_DIR,
 )
@@ -192,16 +193,78 @@ def check_augmented_dataset_applies_groups() -> None:
     print(f"ok: {len(grouped)} clean images get reproducible group-augmented moire")
 
 
-def check_real_moire_images_pass_through_with_groups() -> None:
+def check_real_moire_images_receive_group_augmentation() -> None:
+    samples = build_samples(kind="moire", label=1)
+    plain = augmented_moire_dataset(samples=samples, transform=None, augment_prob=1.0, seed=42)
+    grouped = augmented_moire_dataset(samples=samples, transform=None, augment_prob=1.0, group_augment=True, seed=42)
+    repeat = augmented_moire_dataset(samples=samples, transform=None, augment_prob=1.0, group_augment=True, seed=42)
+    for index in range(len(grouped)):
+        plain_image, plain_label = plain[index]
+        grouped_image, grouped_label = grouped[index]
+        repeat_image, _repeat_label = repeat[index]
+        assert (plain_label, grouped_label) == (1, 1), f"real moire image {index} must keep the moire label"
+        assert np.array_equal(to_array(plain_image), load_array(Path(samples[index]["path"]))), (
+            f"real moire image {index} must stay pixel-identical when groups are disabled"
+        )
+        assert not np.array_equal(to_array(grouped_image), to_array(plain_image)), (
+            f"real moire image {index} must be group-augmented when groups are enabled"
+        )
+        assert np.array_equal(to_array(grouped_image), to_array(repeat_image)), (
+            f"real moire image {index} must be reproducible across equal seeds"
+        )
+    print(f"ok: {len(grouped)} real moire images receive reproducible group augmentation and keep label 1")
+
+
+def check_real_moire_group_path_matches_pipeline() -> None:
     samples = build_samples(kind="moire", label=1)
     dataset = augmented_moire_dataset(samples=samples, transform=None, augment_prob=1.0, group_augment=True, seed=42)
+    rng = np.random.default_rng(seed=42)
     for index in range(len(dataset)):
         image, label = dataset[index]
         assert label == 1, f"real moire image {index} must keep the moire label"
-        assert np.array_equal(to_array(image), load_array(Path(samples[index]["path"]))), (
-            f"real moire image {index} must never be group-augmented"
+        expected, _params = apply_group_augmentation(image=load_array(Path(samples[index]["path"])), rng=rng)
+        data = (np.clip(a=expected, a_min=0.0, a_max=1.0) * PIXEL_VALUE_MAX).round().astype(dtype=np.uint8)
+        assert np.array_equal(np.asarray(image), data), (
+            f"real moire image {index} must equal a plain group draw with no moire synthesis"
         )
-    print("ok: real moire images pass through unaugmented even with groups enabled")
+    print("ok: the real moire path is exactly 'no synthesis, then apply_group_augmentation'")
+
+
+def check_clean_images_receive_group_augmentation() -> None:
+    samples = build_samples(kind="gt", label=0)
+    plain = augmented_moire_dataset(samples=samples, transform=None, augment_prob=0.0, seed=42)
+    grouped = augmented_moire_dataset(samples=samples, transform=None, augment_prob=0.0, group_augment=True, seed=42)
+    repeat = augmented_moire_dataset(samples=samples, transform=None, augment_prob=0.0, group_augment=True, seed=42)
+    for index in range(len(grouped)):
+        plain_image, plain_label = plain[index]
+        grouped_image, grouped_label = grouped[index]
+        repeat_image, _repeat_label = repeat[index]
+        assert (plain_label, grouped_label) == (0, 0), f"clean image {index} must keep the clean label"
+        assert np.array_equal(to_array(plain_image), load_array(Path(samples[index]["path"]))), (
+            f"clean image {index} must stay pixel-identical when groups are disabled"
+        )
+        assert not np.array_equal(to_array(grouped_image), to_array(plain_image)), (
+            f"clean image {index} must be group-augmented when groups are enabled"
+        )
+        assert np.array_equal(to_array(grouped_image), to_array(repeat_image)), (
+            f"clean image {index} must be reproducible across equal seeds"
+        )
+    print(f"ok: {len(grouped)} clean images receive reproducible group augmentation and keep label 0")
+
+
+def check_clean_group_path_matches_pipeline() -> None:
+    samples = build_samples(kind="gt", label=0)
+    dataset = augmented_moire_dataset(samples=samples, transform=None, augment_prob=0.0, group_augment=True, seed=42)
+    rng = np.random.default_rng(seed=42)
+    for index in range(len(dataset)):
+        image, label = dataset[index]
+        assert label == 0, f"clean image {index} must keep the clean label"
+        expected, _params = apply_group_augmentation(image=load_array(Path(samples[index]["path"])), rng=rng)
+        data = (np.clip(a=expected, a_min=0.0, a_max=1.0) * PIXEL_VALUE_MAX).round().astype(dtype=np.uint8)
+        assert np.array_equal(np.asarray(image), data), (
+            f"clean image {index} must equal a plain group draw with no moire synthesis"
+        )
+    print("ok: the clean path is exactly 'no moire synthesis, then apply_group_augmentation', label 0")
 
 
 def check_transform_pipeline_output_with_groups() -> None:
@@ -245,7 +308,10 @@ def main() -> None:
     check_bad_inputs_are_rejected()
     check_groups_compose_after_moire_synthesis()
     check_augmented_dataset_applies_groups()
-    check_real_moire_images_pass_through_with_groups()
+    check_real_moire_images_receive_group_augmentation()
+    check_real_moire_group_path_matches_pipeline()
+    check_clean_images_receive_group_augmentation()
+    check_clean_group_path_matches_pipeline()
     check_transform_pipeline_output_with_groups()
     check_dataset_rejects_invalid_group_settings()
     print("all group augmentation checks passed")

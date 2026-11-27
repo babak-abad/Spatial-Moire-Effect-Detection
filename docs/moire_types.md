@@ -38,7 +38,7 @@ flowchart TD
     mod --> t7["7 · defocus (8)"]
     mod --> t8["8 · demosaic (6)"]
     rec --> t9["9 · nested (4)"]
-    style moire fill:#fff3e0,stroke:#ef6c00
+    style moire fill:#e65100,stroke:#e65100,color:#ffffff
 ```
 
 ## Weights and possibilities

@@ -87,7 +87,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--group-augment",
         action="store_true",
-        help="additionally corrupt moire-augmented images with random capture-style augmentation groups",
+        help=(
+            "additionally corrupt every image (moire-labeled and clean alike) with random "
+            "capture-style augmentation groups; labels follow the moire draw alone"
+        ),
     )
     parser.add_argument(
         "--augment-groups",
@@ -140,7 +143,7 @@ def main() -> None:
     )
 
     train_type_names = list(MOIRE_TYPES) if args.moire_augment_types is None else sorted(args.moire_augment_types)
-    if args.moire_augment_prob > 0.0:
+    if args.moire_augment_prob > 0.0 or args.group_augment:
         train_group_names = list(AUGMENTATION_GROUPS) if args.augment_groups is None else sorted(args.augment_groups)
         group_count_range = (
             GROUP_AUGMENT_COUNT_RANGE if args.augment_group_count is None else tuple(args.augment_group_count)
@@ -155,23 +158,25 @@ def main() -> None:
             group_names=train_group_names,
             num_groups_range=group_count_range,
         )
-        expected_moire_share = (
-            train_positives + args.moire_augment_prob * (len(train_samples) - train_positives)
-        ) / len(train_samples)
-        type_mix = ", ".join(
-            f"{name} {probability:.0%}"
-            for name, probability in type_probabilities(type_names=train_type_names).items()
-        )
-        print(
-            f"moire augmentation: clean train images augmented on the fly with probability {args.moire_augment_prob} "
-            f"via weighted moire type draw ({type_mix}) and relabeled as moire "
-            f"(expected moire share ~{expected_moire_share:.0%})",
-            flush=True,
-        )
+        if args.moire_augment_prob > 0.0:
+            expected_moire_share = (
+                train_positives + args.moire_augment_prob * (len(train_samples) - train_positives)
+            ) / len(train_samples)
+            type_mix = ", ".join(
+                f"{name} {probability:.0%}"
+                for name, probability in type_probabilities(type_names=train_type_names).items()
+            )
+            print(
+                f"moire augmentation: clean train images augmented on the fly with probability {args.moire_augment_prob} "
+                f"via weighted moire type draw ({type_mix}) and relabeled as moire "
+                f"(expected moire share ~{expected_moire_share:.0%})",
+                flush=True,
+            )
         if args.group_augment:
             print(
-                f"group augmentation: each augmented image additionally receives {group_count_range[0]}-{group_count_range[1]} "
-                f"capture-style groups drawn from {', '.join(train_group_names)}",
+                f"group augmentation: every train image (moire-labeled and clean alike) receives "
+                f"{group_count_range[0]}-{group_count_range[1]} capture-style groups drawn from "
+                f"{', '.join(train_group_names)}; labels follow the moire draw",
                 flush=True,
             )
     else:

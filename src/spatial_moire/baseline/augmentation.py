@@ -24,10 +24,13 @@ class augmented_moire_dataset(moire_dataset):
     never be returned as clean. The moire type of every augmentation is drawn
     with possibility weight / total_weight from the selected types (all nine
     registry types by default) and rendered by one of that type's mapped
-    synthesis generators. With group_augment=True each moire-augmented image
-    is additionally corrupted with a random subset of the capture-style
-    augmentation groups from spatial_moire.synthesis.groups. Real moire
-    images are never augmented and source files are never modified.
+    synthesis generators. With group_augment=True every image is
+    additionally corrupted with a random subset of the capture-style
+    augmentation groups from spatial_moire.synthesis.groups while the label
+    keeps following the moire decision alone: moire-augmented clean images
+    after synthesis, and real moire images plus clean images that stay clean
+    straight from the label decision, since they skip moire synthesis but
+    enter the same group_augment branch. Source files are never modified.
     """
 
     def __init__(
@@ -73,20 +76,32 @@ class augmented_moire_dataset(moire_dataset):
             self._worker_rngs[worker_id] = rng
         return rng
 
+    def _apply_groups(self, image: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        augmented, _group_params = apply_group_augmentation(
+            image=image,
+            rng=rng,
+            group_subset=self.group_names,
+            num_groups_range=self.num_groups_range,
+        )
+        return augmented
+
+    def _to_pil(self, array: np.ndarray) -> Image.Image:
+        data = (np.clip(a=array, a_min=0.0, a_max=1.0) * PIXEL_VALUE_MAX).round().astype(dtype=np.uint8)
+        return Image.fromarray(obj=data)
+
+    def _group_only(self, image: Image.Image, rng: np.random.Generator) -> Image.Image:
+        array = np.asarray(image, dtype=np.float32) / PIXEL_VALUE_MAX
+        grouped = self._apply_groups(image=array, rng=rng)
+        return self._to_pil(array=grouped)
+
     def _augment(self, image: Image.Image, rng: np.random.Generator) -> Image.Image:
         type_name = sample_moire_type(rng=rng, type_names=self.type_names)
         generator_name = str(rng.choice(a=generator_names_for_type(type_name=type_name)))
         array = np.asarray(image, dtype=np.float32) / PIXEL_VALUE_MAX
         augmented, _params = MOIRE_GENERATORS[generator_name](image=array, rng=rng)
         if self.group_augment:
-            augmented, _group_params = apply_group_augmentation(
-                image=augmented,
-                rng=rng,
-                group_subset=self.group_names,
-                num_groups_range=self.num_groups_range,
-            )
-        data = (np.clip(a=augmented, a_min=0.0, a_max=1.0) * PIXEL_VALUE_MAX).round().astype(dtype=np.uint8)
-        return Image.fromarray(obj=data)
+            augmented = self._apply_groups(image=augmented, rng=rng)
+        return self._to_pil(array=augmented)
 
     def __getitem__(self, index: int) -> tuple[Any, int]:
         sample = self.samples[index]
@@ -97,6 +112,10 @@ class augmented_moire_dataset(moire_dataset):
             if rng.random() < self.augment_prob:
                 image = self._augment(image=image, rng=rng)
                 label = MOIRE_LABEL
+            elif self.group_augment:
+                image = self._group_only(image=image, rng=rng)
+        elif self.group_augment:
+            image = self._group_only(image=image, rng=self._rng())
         if self.transform is not None:
             image = self.transform(image)
         return image, label

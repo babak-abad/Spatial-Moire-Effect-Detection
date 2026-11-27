@@ -31,6 +31,16 @@ class augmented_moire_dataset(moire_dataset):
     after synthesis, and real moire images plus clean images that stay clean
     straight from the label decision, since they skip moire synthesis but
     enter the same group_augment branch. Source files are never modified.
+
+    With balanced=True the dataset instead serves the interleaved virtual index
+    space of balanced_moire_dataset: even indices return a clean image with the
+    clean label (the moire draw never fires on them) and odd indices return a
+    moire image with the moire label — a real moire source passed through or,
+    with probability augment_prob, a clean source with forced moire synthesis.
+    augment_prob thereby becomes the share of the moire half that is
+    synthesized, and any batch of even size drawn from sequential or
+    balanced_shuffle_sampler order holds exactly half clean and half moire
+    items regardless of the source label distribution.
     """
 
     def __init__(
@@ -43,6 +53,7 @@ class augmented_moire_dataset(moire_dataset):
         group_augment: bool = False,
         group_names: list[str] | None = None,
         num_groups_range: tuple[int, int] = GROUP_AUGMENT_COUNT_RANGE,
+        balanced: bool = False,
     ) -> None:
         super().__init__(samples=samples, transform=transform)
         if not 0.0 <= augment_prob <= 1.0:
@@ -66,6 +77,18 @@ class augmented_moire_dataset(moire_dataset):
         self.group_names = selected_group_names(group_subset=group_names)
         self.num_groups_range = normalized_group_count_range(num_groups_range=num_groups_range)
         self._worker_rngs: dict[int, np.random.Generator] = {}
+        self.balanced = balanced
+        if balanced:
+            self.clean_pool = [sample for sample in samples if int(sample["label"]) == CLEAN_LABEL]
+            self.moire_pool = [sample for sample in samples if int(sample["label"]) == MOIRE_LABEL]
+            synthesis_available = bool(self.type_names) and self.augment_prob > 0.0
+            if not self.clean_pool:
+                raise ValueError(f"balanced=True requires at least one clean sample, got {len(self.clean_pool)}")
+            if not self.moire_pool and not synthesis_available:
+                raise ValueError(
+                    "balanced=True requires moire samples or moire synthesis (augment_prob > 0.0 with at least one moire type)"
+                )
+            self.num_slots = max(len(self.clean_pool), len(self.moire_pool))
 
     def _rng(self) -> np.random.Generator:
         worker_info = get_worker_info()
@@ -103,7 +126,47 @@ class augmented_moire_dataset(moire_dataset):
             augmented = self._apply_groups(image=augmented, rng=rng)
         return self._to_pil(array=augmented)
 
+    def __len__(self) -> int:
+        if self.balanced:
+            return 2 * self.num_slots
+        return len(self.samples)
+
+    def _getitem_balanced(self, index: int) -> tuple[Any, int]:
+        """Serve the interleaved index space: parity fixes the returned label.
+
+        Even indices return a clean image (label 0) — moire synthesis never
+        fires on them, group augmentation follows the flag alone. Odd indices
+        return a moire image (label 1): with probability augment_prob a clean
+        source is moire-augmented, otherwise a real moire source passes through
+        unchanged apart from the group augmentation.
+        """
+        slot, want_moire = divmod(index, 2)
+        rng = self._rng()
+        if want_moire:
+            synthesis_available = bool(self.type_names) and self.augment_prob > 0.0
+            if not self.moire_pool or (synthesis_available and rng.random() < self.augment_prob):
+                source = self.clean_pool[slot % len(self.clean_pool)]
+                image = Image.open(source["path"]).convert(mode=IMAGE_COLOR_MODE)
+                image = self._augment(image=image, rng=rng)
+            else:
+                source = self.moire_pool[slot % len(self.moire_pool)]
+                image = Image.open(source["path"]).convert(mode=IMAGE_COLOR_MODE)
+                if self.group_augment:
+                    image = self._group_only(image=image, rng=rng)
+            label = MOIRE_LABEL
+        else:
+            source = self.clean_pool[slot % len(self.clean_pool)]
+            image = Image.open(source["path"]).convert(mode=IMAGE_COLOR_MODE)
+            if self.group_augment:
+                image = self._group_only(image=image, rng=rng)
+            label = CLEAN_LABEL
+        if self.transform is not None:
+            image = self.transform(image)
+        return image, label
+
     def __getitem__(self, index: int) -> tuple[Any, int]:
+        if self.balanced:
+            return self._getitem_balanced(index=index)
         sample = self.samples[index]
         image = Image.open(sample["path"]).convert(mode=IMAGE_COLOR_MODE)
         label = int(sample["label"])

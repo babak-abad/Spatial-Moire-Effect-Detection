@@ -262,6 +262,10 @@ TRAIN_PRETRAINED: bool = True
 LEARNING_RATE: float = 1e-4
 WEIGHT_DECAY: float = 1e-4
 MOIRE_AUGMENT_PROB: float = 0.5
+# Balanced train batches: every train batch holds exactly batch_size // 2 clean
+# and batch_size // 2 moire items (balanced_moire_dataset plus
+# balanced_shuffle_sampler in baseline/data.py); --no-balance-batches opts out.
+TRAIN_BALANCED_BATCHES: bool = True
 
 # --- Training progress bar (ultralytics-style) ----------------------------------------------------------------------------
 # The training console mirrors the Ultralytics YOLO look: a right-aligned

@@ -22,6 +22,7 @@ Machine-readable counterparts:
 | Augmentation group registry + algorithm | `src/spatial_moire/synthesis/groups.py` (`AUGMENTATION_GROUPS`, `apply_group_augmentation`) |
 | Every hard-coded range | `src/config.py` (`GROUP_*`, per-generator `*_RANGE`) |
 | On-the-fly training dataset | `src/spatial_moire/baseline/augmentation.py` (`augmented_moire_dataset`) |
+| Balanced train batches | `src/spatial_moire/baseline/data.py` (`balanced_moire_dataset`, `balanced_shuffle_sampler`), `src/config.py` (`TRAIN_BALANCED_BATCHES`) |
 | Offline sample generation | `src/generate_moire_samples.py` |
 | Dataset source pools & split fractions | `src/config.py` (`CLEAN_IMAGE_FOLDERS`, `MOIRE_IMAGE_FOLDERS`, `TRAIN_FRACTION` / `VAL_FRACTION` / `TEST_FRACTION`) — see `docs/dataset.md` |
 
@@ -180,6 +181,28 @@ flowchart TD
   without consuming rng, so those images go straight to the group draw
   exactly like real moiré.
 
+#### Balanced train batches (default)
+
+`TRAIN_BALANCED_BATCHES = True` makes `src/train_baseline.py` serve exactly
+balanced train batches: every batch of an even `batch_size` holds
+`batch_size // 2` clean and `batch_size // 2` moire items. The mechanism is the
+interleaved virtual index space of `balanced_moire_dataset` — even indices
+address the clean pool, odd indices the moire pool, both cycling modulo their
+pool size — combined with `balanced_shuffle_sampler`, which shuffles the slot
+order (seeded, reshuffled every epoch) while keeping each (clean, moire) pair
+adjacent, so no contiguous window of the stream can drift off balance. The
+smaller class pool is oversampled to `max(n_clean, n_moire)` slots per class
+per epoch; an odd `batch_size` (or below 2) is rejected up front, and
+`--no-balance-batches` restores plain shuffled batches.
+
+Inside `augmented_moire_dataset(balanced=True)` the parity also fixes the
+label: clean slots never draw moiré synthesis (they may still receive the
+capture-style groups), and moire slots are a real moiré source passed through
+or — with probability `augment_prob` — a clean source with forced moiré
+synthesis, so `augment_prob` becomes the synthesized share of the moire half.
+With no moiré sources at all, balance is kept through synthesis alone
+(`augment_prob > 0` then required); an empty clean pool raises `ValueError`.
+
 ### Offline sample generation
 
 `src/generate_moire_samples.py` writes JPEG samples, previews and
@@ -208,10 +231,12 @@ images never flow through it:
 | `src/train_baseline.py` | `--group-augment` | corrupt every training image with the groups, labels unchanged |
 | | `--augment-groups NAME ...` | restrict the group subset (all by default) |
 | | `--augment-group-count LOW HIGH` | inclusive applied-groups range (default `(2, 4)`) |
+| | `--no-balance-batches` | fall back from exactly half/half train batches (default) to plain shuffled batches |
 
 Group augmentation composes with the existing moiré flags
 (`--moire-augment-prob`, `--moire-augment-types`, `--types`, `--sampling`,
-`--variants`, `--seed`).
+`--variants`, `--seed`) and with the balanced-batch default
+(`--no-balance-batches` opts out).
 
 ## Validation guarantees
 
@@ -231,6 +256,13 @@ Group augmentation composes with the existing moiré flags
   (pixel-identical otherwise, straight into the group draw);
 - group-augmented images flow through the train transform as
   `(3, crop, crop)` tensors.
+
+`tests/test_balanced_batches.py` pins the balanced-batch contract: parity
+labels and the `2 * max(pool)` length, exact half/half batches through a real
+DataLoader (also with workers and unbalanced sources), `augment_prob`
+semantics per parity, sampler adjacency / reproducibility / per-epoch
+reshuffle, `ValueError` on empty pools, and unchanged legacy behavior when
+`balanced=False`.
 
 ## Tuning
 

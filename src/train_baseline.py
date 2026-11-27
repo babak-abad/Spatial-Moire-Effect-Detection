@@ -18,6 +18,8 @@ if str(SRC_ROOT) not in sys.path:
 
 from spatial_moire.baseline.augmentation import augmented_moire_dataset  # noqa: E402
 from spatial_moire.baseline.data import (  # noqa: E402
+    balanced_moire_dataset,
+    balanced_shuffle_sampler,
     build_eval_transform,
     build_train_transform,
     moire_dataset,
@@ -42,6 +44,7 @@ from config import (  # noqa: E402
     PIN_MEMORY,
     SPLIT_MANIFEST_FILENAME,
     TEST_FRACTION,
+    TRAIN_BALANCED_BATCHES,
     TRAIN_BATCH_SIZE,
     TRAIN_EPOCHS,
     TRAIN_FRACTION,
@@ -73,6 +76,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--epochs", type=int, default=TRAIN_EPOCHS)
     parser.add_argument("--batch-size", type=int, default=TRAIN_BATCH_SIZE)
+    parser.add_argument(
+        "--no-balance-batches",
+        action="store_false",
+        dest="balance_batches",
+        default=TRAIN_BALANCED_BATCHES,
+        help=(
+            "disable exactly balanced train batches (batch_size // 2 clean + batch_size // 2 moire per batch) "
+            "and fall back to plain shuffled batches"
+        ),
+    )
     parser.add_argument("--learning-rate", type=float, default=LEARNING_RATE)
     parser.add_argument("--weight-decay", type=float, default=WEIGHT_DECAY)
     parser.add_argument(
@@ -118,6 +131,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     seed_everything(seed=args.seed)
+    if args.balance_batches and (args.batch_size < 2 or args.batch_size % 2 != 0):
+        raise ValueError(f"balanced train batches require an even batch size of at least 2, got {args.batch_size}")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"device: {device}", flush=True)
     if device.type == "cuda":
@@ -173,6 +188,7 @@ def main() -> None:
             group_augment=args.group_augment,
             group_names=train_group_names,
             num_groups_range=group_count_range,
+            balanced=args.balance_batches,
         )
         if args.moire_augment_prob > 0.0:
             expected_moire_share = (
@@ -182,12 +198,20 @@ def main() -> None:
                 f"{name} {probability:.0%}"
                 for name, probability in type_probabilities(type_names=train_type_names).items()
             )
-            print(
-                f"moire augmentation: clean train images augmented on the fly with probability {args.moire_augment_prob} "
-                f"via weighted moire type draw ({type_mix}) and relabeled as moire "
-                f"(expected moire share ~{expected_moire_share:.0%})",
-                flush=True,
-            )
+            if args.balance_batches:
+                print(
+                    f"moire augmentation: a {args.moire_augment_prob:.0%} share of the moire half of every balanced "
+                    f"train batch is synthesized on the fly from clean images via weighted moire type draw ({type_mix}); "
+                    "the remaining moire items are real moire images",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"moire augmentation: clean train images augmented on the fly with probability {args.moire_augment_prob} "
+                    f"via weighted moire type draw ({type_mix}) and relabeled as moire "
+                    f"(expected moire share ~{expected_moire_share:.0%})",
+                    flush=True,
+                )
         if args.group_augment:
             print(
                 f"group augmentation: every train image (moire-labeled and clean alike) receives "
@@ -195,13 +219,25 @@ def main() -> None:
                 f"{', '.join(train_group_names)}; labels follow the moire draw",
                 flush=True,
             )
+    elif args.balance_batches:
+        train_set = balanced_moire_dataset(samples=train_samples, transform=build_train_transform())
     else:
         train_set = moire_dataset(samples=train_samples, transform=build_train_transform())
     val_set = moire_dataset(samples=val_samples, transform=build_eval_transform())
+    if args.balance_batches:
+        train_sampler = balanced_shuffle_sampler(num_slots=train_set.num_slots, seed=args.seed)
+        print(
+            f"balanced batches: every train batch of {args.batch_size} holds {args.batch_size // 2} clean + "
+            f"{args.batch_size // 2} moire items ({train_set.num_slots} slots per class per epoch)",
+            flush=True,
+        )
+    else:
+        train_sampler = None
     train_loader = DataLoader(
         dataset=train_set,
         batch_size=args.batch_size,
-        shuffle=TRAIN_SHUFFLE,
+        shuffle=TRAIN_SHUFFLE and train_sampler is None,
+        sampler=train_sampler,
         num_workers=args.num_workers,
         pin_memory=PIN_MEMORY,
         persistent_workers=args.num_workers > 0 and TRAIN_PERSISTENT_WORKERS,

@@ -4,10 +4,11 @@ import json
 import math
 import random
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
+import numpy as np
 from PIL import Image
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 from torchvision import transforms
 
 from config import (
@@ -172,6 +173,71 @@ class moire_dataset(Dataset):
         if self.transform is not None:
             image = self.transform(image)
         return image, int(sample["label"])
+
+
+class balanced_moire_dataset(moire_dataset):
+    """moire_dataset whose virtual index space interleaves clean and moire slots.
+
+    Even indices address the clean pool and odd indices the moire pool, both
+    cycling modulo their pool size, so every contiguous even-length window of
+    range(len(dataset)) — exactly what a DataLoader forms from sequential or
+    balanced_shuffle_sampler order — holds half clean and half moire items,
+    however unbalanced the source samples are. The smaller pool is oversampled
+    (it repeats within one epoch); __len__ is 2 * max(n_clean, n_moire).
+    Raises ValueError when either class pool is empty.
+    """
+
+    def __init__(self, samples: list[dict[str, Any]], transform: transforms.Compose | None = None) -> None:
+        super().__init__(samples=samples, transform=transform)
+        self.clean_pool = [sample for sample in samples if int(sample["label"]) == CLEAN_LABEL]
+        self.moire_pool = [sample for sample in samples if int(sample["label"]) == MOIRE_LABEL]
+        if not self.clean_pool or not self.moire_pool:
+            raise ValueError(
+                "balanced_moire_dataset requires at least one clean and one moire sample, "
+                f"got {len(self.clean_pool)} clean / {len(self.moire_pool)} moire"
+            )
+        self.num_slots = max(len(self.clean_pool), len(self.moire_pool))
+
+    def __len__(self) -> int:
+        return 2 * self.num_slots
+
+    def __getitem__(self, index: int) -> tuple[Any, int]:
+        slot, want_moire = divmod(index, 2)
+        pool = self.moire_pool if want_moire else self.clean_pool
+        sample = pool[slot % len(pool)]
+        image = Image.open(sample["path"]).convert(mode=IMAGE_COLOR_MODE)
+        if self.transform is not None:
+            image = self.transform(image)
+        return image, int(sample["label"])
+
+
+class balanced_shuffle_sampler(Sampler[int]):
+    """Shuffles balanced_moire_dataset slots while keeping (clean, moire) pairs adjacent.
+
+    __iter__ yields the dataset's interleaved index space (2k, 2k + 1) over a
+    seeded permutation of the slot order, so every epoch visits the slots in a
+    fresh random order while every batch of even size drawn from the produced
+    sequence stays exactly half clean and half moire. The first iteration uses
+    seed, each following iteration (epoch) uses seed + epoch, so training stays
+    reproducible yet reshuffles per epoch.
+    """
+
+    def __init__(self, num_slots: int, seed: int = DEFAULT_SEED) -> None:
+        if num_slots < 1:
+            raise ValueError(f"num_slots must be at least 1, got {num_slots}")
+        self.num_slots = num_slots
+        self.seed = seed
+        self._epoch = 0
+
+    def __iter__(self) -> Iterator[int]:
+        order = np.random.default_rng(seed=self.seed + self._epoch).permutation(self.num_slots)
+        self._epoch += 1
+        for slot in order:
+            yield 2 * int(slot)
+            yield 2 * int(slot) + 1
+
+    def __len__(self) -> int:
+        return 2 * self.num_slots
 
 
 def build_train_transform(crop_size: int = TRAIN_CROP_SIZE) -> transforms.Compose:

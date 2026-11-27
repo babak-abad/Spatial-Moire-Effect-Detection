@@ -3,7 +3,8 @@
 Single source of truth for every hard-coded value: repository paths, dataset
 layout, class labels, transform / training / evaluation / DataLoader
 defaults, output filenames, plotting settings, moire type prevalence
-weights, pattern-engine constants and the synthesis randomization ranges.
+weights, pattern-engine constants, the synthesis randomization ranges and
+the group-augmentation ranges.
 This module lives at src/config.py next to the CLI scripts and is imported as
 the top-level ``config`` module by every script, package module and test (src
 is on sys.path in all entry points). It is a dependency-free leaf (it imports
@@ -219,4 +220,46 @@ DEFOCUS_DETUNE_FREQUENCY_RANGE: tuple[float, float] = (0.008, 0.04)
 DEFOCUS_DETUNE_ANGLE_RANGE: tuple[float, float] = (-6.0, 6.0)
 DEFOCUS_STRENGTH_RANGE: tuple[float, float] = (0.3, 0.6)
 DEFOCUS_PATTERN_BLUR_SIGMA_RANGE: tuple[float, float] = (0.6, 1.8)
+
+# --- Group augmentation ranges (synthesis/groups.py) ------------------------------------------------------------------
+# Group augmentation draws, for each augmented image, a random subset of the
+# named augmentation groups (noise, photometric, contrast, blur, dropouts,
+# geometric), one imgaug augmenter per group, and applies them in random
+# order after moire synthesis. Every child augmenter is seeded from the
+# caller's rng, so identical seeds keep producing identical images. Tuples
+# are inclusive (low, high) ranges drawn from the child augmenter's own rng.
+
+GROUP_AUGMENT_COUNT_RANGE: tuple[int, int] = (2, 4)
+
+# noise group (sensor read noise)
+GROUP_NOISE_GAUSSIAN_SIGMA_RANGE: tuple[float, float] = (0.01, 0.05)
+GROUP_NOISE_LAPLACE_SCALE_RANGE: tuple[float, float] = (0.01, 0.04)
+
+# photometric group (exposure / gain)
+GROUP_PHOTOMETRIC_MULTIPLY_RANGE: tuple[float, float] = (0.7, 1.3)
+GROUP_PHOTOMETRIC_ADD_RANGE: tuple[float, float] = (-0.08, 0.08)
+
+# contrast group (tone curve)
+GROUP_CONTRAST_GAMMA_RANGE: tuple[float, float] = (0.7, 1.4)
+GROUP_CONTRAST_LINEAR_ALPHA_RANGE: tuple[float, float] = (0.75, 1.3)
+GROUP_CONTRAST_SIGMOID_GAIN_RANGE: tuple[float, float] = (3.0, 10.0)
+GROUP_CONTRAST_SIGMOID_CUTOFF_RANGE: tuple[float, float] = (0.4, 0.6)
+
+# blur group (defocus / camera shake)
+GROUP_BLUR_GAUSSIAN_SIGMA_RANGE: tuple[float, float] = (0.0, 1.2)
+GROUP_BLUR_AVERAGE_KERNEL_RANGE: tuple[int, int] = (3, 5)
+GROUP_BLUR_MOTION_KERNEL: int = 7
+GROUP_BLUR_MOTION_ANGLE_RANGE: tuple[float, float] = (-45.0, 45.0)
+
+# dropouts group (dead pixels / lost packets)
+GROUP_DROPOUT_COARSE_PROBABILITY_RANGE: tuple[float, float] = (0.0, 0.05)
+GROUP_DROPOUT_COARSE_SIZE_PERCENT_RANGE: tuple[float, float] = (0.1, 0.3)
+GROUP_DROPOUT_PIXEL_PROBABILITY_RANGE: tuple[float, float] = (0.0, 0.02)
+
+# geometric group (camera angle drift, constant fill)
+GROUP_GEOMETRIC_SCALE_RANGE: tuple[float, float] = (0.92, 1.08)
+GROUP_GEOMETRIC_ROTATION_RANGE: tuple[float, float] = (-8.0, 8.0)
+GROUP_GEOMETRIC_SHEAR_RANGE: tuple[float, float] = (-6.0, 6.0)
+GROUP_GEOMETRIC_TRANSLATE_PERCENT_RANGE: tuple[float, float] = (0.0, 0.04)
+GROUP_GEOMETRIC_FILL_VALUE: float = 0.5
 DEFOCUS_IMAGE_BLUR_SIGMA_RANGE: tuple[float, float] = (0.3, 0.9)

@@ -8,3 +8,6 @@ pillow==13.0.0
 scikit-learn==1.9.0
 matplotlib==3.11.2
 scipy==1.18.1
+# Group augmentation; imgaug 0.4.0 predates numpy 2.x, so
+# src/spatial_moire/synthesis/groups.py patches the removed numpy aliases before importing it.
+imgaug==0.4.0

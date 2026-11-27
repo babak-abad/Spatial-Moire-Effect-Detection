@@ -31,6 +31,7 @@ from config import (  # noqa: E402
     DEFAULT_DATA_DIR,
     DEFAULT_OUTPUT_DIR,
     DEFAULT_SEED,
+    GROUP_AUGMENT_COUNT_RANGE,
     HISTORY_FILENAME,
     JSON_ENCODING,
     JSON_INDENT,
@@ -54,6 +55,7 @@ from config import (  # noqa: E402
     WEIGHT_DECAY,
 )
 from spatial_moire.moire_types import MOIRE_TYPES, type_probabilities  # noqa: E402
+from spatial_moire.synthesis.groups import AUGMENTATION_GROUPS  # noqa: E402
 
 
 def seed_everything(seed: int) -> None:
@@ -81,6 +83,26 @@ def parse_args() -> argparse.Namespace:
         nargs="+",
         choices=sorted(MOIRE_TYPES),
         default=None,
+    )
+    parser.add_argument(
+        "--group-augment",
+        action="store_true",
+        help="additionally corrupt moire-augmented images with random capture-style augmentation groups",
+    )
+    parser.add_argument(
+        "--augment-groups",
+        nargs="+",
+        choices=sorted(AUGMENTATION_GROUPS),
+        default=None,
+        help="subset of augmentation groups to draw from (all groups by default)",
+    )
+    parser.add_argument(
+        "--augment-group-count",
+        nargs=2,
+        type=int,
+        metavar=("LOW", "HIGH"),
+        default=None,
+        help="inclusive range of augmentation groups applied per augmented image",
     )
     return parser.parse_args()
 
@@ -119,12 +141,19 @@ def main() -> None:
 
     train_type_names = list(MOIRE_TYPES) if args.moire_augment_types is None else sorted(args.moire_augment_types)
     if args.moire_augment_prob > 0.0:
+        train_group_names = list(AUGMENTATION_GROUPS) if args.augment_groups is None else sorted(args.augment_groups)
+        group_count_range = (
+            GROUP_AUGMENT_COUNT_RANGE if args.augment_group_count is None else tuple(args.augment_group_count)
+        )
         train_set = augmented_moire_dataset(
             samples=train_samples,
             transform=build_train_transform(),
             augment_prob=args.moire_augment_prob,
             type_names=train_type_names,
             seed=args.seed,
+            group_augment=args.group_augment,
+            group_names=train_group_names,
+            num_groups_range=group_count_range,
         )
         expected_moire_share = (
             train_positives + args.moire_augment_prob * (len(train_samples) - train_positives)
@@ -139,6 +168,12 @@ def main() -> None:
             f"(expected moire share ~{expected_moire_share:.0%})",
             flush=True,
         )
+        if args.group_augment:
+            print(
+                f"group augmentation: each augmented image additionally receives {group_count_range[0]}-{group_count_range[1]} "
+                f"capture-style groups drawn from {', '.join(train_group_names)}",
+                flush=True,
+            )
     else:
         train_set = moire_dataset(samples=train_samples, transform=build_train_transform())
     val_set = moire_dataset(samples=val_samples, transform=build_eval_transform())

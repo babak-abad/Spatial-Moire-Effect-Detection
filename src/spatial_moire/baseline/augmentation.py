@@ -10,9 +10,10 @@ from torch.utils.data import get_worker_info
 from torchvision import transforms
 
 from spatial_moire.baseline.data import CLEAN_LABEL, MOIRE_LABEL, moire_dataset
-from config import DEFAULT_SEED, IMAGE_COLOR_MODE, MOIRE_AUGMENT_PROB, PIXEL_VALUE_MAX
+from config import DEFAULT_SEED, GROUP_AUGMENT_COUNT_RANGE, IMAGE_COLOR_MODE, MOIRE_AUGMENT_PROB, PIXEL_VALUE_MAX
 from spatial_moire.moire_types import MOIRE_TYPES, generator_names_for_type, sample_moire_type
 from spatial_moire.synthesis.augment import MOIRE_GENERATORS
+from spatial_moire.synthesis.groups import apply_group_augmentation, normalized_group_count_range, selected_group_names
 
 
 class augmented_moire_dataset(moire_dataset):
@@ -23,8 +24,10 @@ class augmented_moire_dataset(moire_dataset):
     never be returned as clean. The moire type of every augmentation is drawn
     with possibility weight / total_weight from the selected types (all nine
     registry types by default) and rendered by one of that type's mapped
-    synthesis generators. Real moire images are never augmented and source
-    files are never modified.
+    synthesis generators. With group_augment=True each moire-augmented image
+    is additionally corrupted with a random subset of the capture-style
+    augmentation groups from spatial_moire.synthesis.groups. Real moire
+    images are never augmented and source files are never modified.
     """
 
     def __init__(
@@ -34,6 +37,9 @@ class augmented_moire_dataset(moire_dataset):
         augment_prob: float = MOIRE_AUGMENT_PROB,
         type_names: list[str] | None = None,
         seed: int = DEFAULT_SEED,
+        group_augment: bool = False,
+        group_names: list[str] | None = None,
+        num_groups_range: tuple[int, int] = GROUP_AUGMENT_COUNT_RANGE,
     ) -> None:
         super().__init__(samples=samples, transform=transform)
         if not 0.0 <= augment_prob <= 1.0:
@@ -53,6 +59,9 @@ class augmented_moire_dataset(moire_dataset):
         self.augment_prob = augment_prob
         self.seed = seed
         self.type_names = selected_names
+        self.group_augment = group_augment
+        self.group_names = selected_group_names(group_subset=group_names)
+        self.num_groups_range = normalized_group_count_range(num_groups_range=num_groups_range)
         self._worker_rngs: dict[int, np.random.Generator] = {}
 
     def _rng(self) -> np.random.Generator:
@@ -69,6 +78,13 @@ class augmented_moire_dataset(moire_dataset):
         generator_name = str(rng.choice(a=generator_names_for_type(type_name=type_name)))
         array = np.asarray(image, dtype=np.float32) / PIXEL_VALUE_MAX
         augmented, _params = MOIRE_GENERATORS[generator_name](image=array, rng=rng)
+        if self.group_augment:
+            augmented, _group_params = apply_group_augmentation(
+                image=augmented,
+                rng=rng,
+                group_subset=self.group_names,
+                num_groups_range=self.num_groups_range,
+            )
         data = (np.clip(a=augmented, a_min=0.0, a_max=1.0) * PIXEL_VALUE_MAX).round().astype(dtype=np.uint8)
         return Image.fromarray(obj=data)
 

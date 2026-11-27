@@ -21,6 +21,7 @@ from config import (  # noqa: E402
     DEFAULT_SEED,
     DEFAULT_SOURCE_DIR,
     DRAWN_PREVIEW_ROW_HEIGHT,
+    GROUP_AUGMENT_COUNT_RANGE,
     IMAGE_COLOR_MODE,
     IMAGE_EXTENSIONS,
     JPEG_QUALITY,
@@ -53,6 +54,7 @@ from spatial_moire.moire_types import (  # noqa: E402
     type_probabilities,
 )
 from spatial_moire.synthesis.augment import MOIRE_GENERATORS  # noqa: E402
+from spatial_moire.synthesis.groups import AUGMENTATION_GROUPS, apply_group_augmentation  # noqa: E402
 
 
 def load_image(path: Path) -> np.ndarray:
@@ -100,10 +102,25 @@ def render_moire_type(
     image: np.ndarray,
     type_name: str,
     rng: np.random.Generator,
+    apply_groups: bool = False,
+    group_subset: list[str] | None = None,
+    num_groups_range: tuple[int, int] = GROUP_AUGMENT_COUNT_RANGE,
 ) -> tuple[np.ndarray, str, dict]:
-    """Run one of the type's mapped generators and return (image, generator name, params)."""
+    """Run one of the type's mapped generators, then optionally the group augmentation.
+
+    Returns (image, generator name, params); with apply_groups=True the params
+    dict gains a "groups" entry describing the applied capture-style recipe.
+    """
     generator_name = str(rng.choice(a=generator_names_for_type(type_name=type_name)))
     moire_image, params = MOIRE_GENERATORS[generator_name](image=image, rng=rng)
+    if apply_groups:
+        moire_image, group_params = apply_group_augmentation(
+            image=moire_image,
+            rng=rng,
+            group_subset=group_subset,
+            num_groups_range=num_groups_range,
+        )
+        params = {**params, "groups": group_params}
     return moire_image, generator_name, params
 
 
@@ -143,6 +160,26 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_SAMPLING_MODE,
         help="grid: one sample per selected type per image; weighted: draw each type by weight / total_weight",
     )
+    parser.add_argument(
+        "--groups",
+        action="store_true",
+        help="additionally corrupt each moire sample with random capture-style augmentation groups",
+    )
+    parser.add_argument(
+        "--group-names",
+        nargs="+",
+        choices=sorted(AUGMENTATION_GROUPS),
+        default=None,
+        help="subset of augmentation groups to draw from (all groups by default)",
+    )
+    parser.add_argument(
+        "--group-count",
+        nargs=2,
+        type=int,
+        metavar=("LOW", "HIGH"),
+        default=None,
+        help="inclusive range of augmentation groups applied per sample",
+    )
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--jpeg-quality", type=int, default=JPEG_QUALITY)
     return parser.parse_args()
@@ -158,6 +195,8 @@ def main() -> None:
         chosen = rng.permutation(len(image_paths))[: args.num_images]
         image_paths = [image_paths[index] for index in sorted(chosen)]
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    group_count_range = GROUP_AUGMENT_COUNT_RANGE if args.group_count is None else tuple(args.group_count)
+    active_group_names = list(AUGMENTATION_GROUPS) if args.group_names is None else list(args.group_names)
 
     probabilities = type_probabilities(type_names=args.types)
     manifest: list[dict] = []
@@ -175,6 +214,9 @@ def main() -> None:
                         image=image,
                         type_name=type_name,
                         rng=rng,
+                        apply_groups=args.groups,
+                        group_subset=args.group_names,
+                        num_groups_range=group_count_range,
                     )
                     output_name = MOIRE_SAMPLE_FILENAME_TEMPLATE.format(type_name=type_name, source_stem=path.stem, variant=variant)
                     save_image(array=moire_image, path=args.output_dir / output_name, jpeg_quality=args.jpeg_quality)
@@ -198,6 +240,9 @@ def main() -> None:
                     image=image,
                     type_name=type_name,
                     rng=rng,
+                    apply_groups=args.groups,
+                    group_subset=args.group_names,
+                    num_groups_range=group_count_range,
                 )
                 output_name = MOIRE_SAMPLE_FILENAME_TEMPLATE.format(type_name=type_name, source_stem=path.stem, variant=variant)
                 save_image(array=moire_image, path=args.output_dir / output_name, jpeg_quality=args.jpeg_quality)
@@ -223,6 +268,9 @@ def main() -> None:
                 "sampling": args.sampling,
                 "num_images": len(image_paths),
                 "type_probabilities": probabilities,
+                "group_augmentation": (
+                    {"group_names": active_group_names, "count_range": list(group_count_range)} if args.groups else None
+                ),
                 "entries": manifest,
             },
             indent=JSON_INDENT,
@@ -247,8 +295,13 @@ def main() -> None:
     distribution = ", ".join(
         f"{name} {type_counts.get(name, 0)} ({probabilities[name]:.0%})" for name in probabilities
     )
+    group_note = (
+        f", group augmentation ({group_count_range[0]}-{group_count_range[1]} of {', '.join(active_group_names)})"
+        if args.groups
+        else ""
+    )
     print(
-        f"wrote {len(manifest)} samples via {args.sampling} sampling [{distribution}], "
+        f"wrote {len(manifest)} samples via {args.sampling} sampling [{distribution}]{group_note}, "
         f"preview and params manifest to {args.output_dir}",
         flush=True,
     )

@@ -74,6 +74,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=TRAIN_BATCH_SIZE)
     parser.add_argument("--learning-rate", type=float, default=LEARNING_RATE)
     parser.add_argument("--weight-decay", type=float, default=WEIGHT_DECAY)
+    parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="disable the ultralytics-style batch progress bars and epoch summary rows",
+    )
     parser.add_argument("--val-fraction", type=float, default=VAL_FRACTION)
     parser.add_argument("--num-workers", type=int, default=TRAIN_NUM_WORKERS)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
@@ -210,6 +215,7 @@ def main() -> None:
         epochs=args.epochs,
         learning_rate=args.learning_rate,
         weight_decay=args.weight_decay,
+        progress=not args.no_progress,
     )
 
     history_path = args.output_dir / HISTORY_FILENAME

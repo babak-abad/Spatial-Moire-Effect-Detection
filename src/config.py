@@ -1,9 +1,10 @@
 """Central configuration and constants for the Spatial-Moire-Effect-Detection project.
 
 Single source of truth for every hard-coded value: repository paths, dataset
-layout, class labels, transform / training / evaluation / DataLoader
-defaults, output filenames, plotting settings, moire type prevalence
-weights, pattern-engine constants, the synthesis randomization ranges and
+layout, class labels, transform / training / evaluation / DataLoader /
+training-progress console defaults, output filenames, plotting settings,
+moire type prevalence weights, pattern-engine constants, the synthesis
+randomization ranges and
 the group-augmentation ranges.
 This module lives at src/config.py next to the CLI scripts and is imported as
 the top-level ``config`` module by every script, package module and test (src
@@ -73,6 +74,15 @@ VAL_FRACTION: float = 0.2
 LEARNING_RATE: float = 1e-4
 WEIGHT_DECAY: float = 1e-4
 MOIRE_AUGMENT_PROB: float = 0.5
+
+# --- Training progress bar (ultralytics-style) ----------------------------------------------------------------------------
+# The training console mirrors the Ultralytics YOLO look: a right-aligned
+# column header per epoch, a tqdm batch bar whose description carries the
+# live column values, and a validation metrics row after each epoch.
+TQDM_BAR_FORMAT: str = "{l_bar}{bar:10}{r_bar}"
+PROGRESS_COLUMN_WIDTH: int = 11
+TRAIN_PROGRESS_COLUMNS: tuple[str, ...] = ("Epoch", "GPU_mem", "train_loss", "train_acc", "Instances", "Size")
+VAL_PROGRESS_COLUMNS: tuple[str, ...] = ("val_loss", "val_acc", "val_f1", "lr", "time")
 
 # --- Evaluation defaults --------------------------------------------------------------------------
 EVAL_BATCH_SIZE: int = 64

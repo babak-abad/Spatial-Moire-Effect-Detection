@@ -14,11 +14,11 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from config import DEFAULT_DATA_DIR, IMAGE_EXTENSIONS, TRAIN_CROP_SIZE, TRAIN_SPLIT_DIR  # noqa: E402
+from config import CLEAN_IMAGE_FOLDERS, IMAGE_EXTENSIONS, MOIRE_IMAGE_FOLDERS, TRAIN_CROP_SIZE  # noqa: E402
 from spatial_moire.baseline.augmentation import augmented_moire_dataset  # noqa: E402
 from spatial_moire.baseline.data import build_train_transform  # noqa: E402
 
-TRAIN_DIR = DEFAULT_DATA_DIR / TRAIN_SPLIT_DIR
+SAMPLE_DIRS: dict[str, Path] = {"gt": CLEAN_IMAGE_FOLDERS[0], "moire": MOIRE_IMAGE_FOLDERS[0]}
 NUM_SAMPLES = 6
 
 
@@ -31,7 +31,7 @@ def to_array(image: Image.Image) -> np.ndarray:
 
 
 def build_samples(kind: str, label: int) -> list[dict]:
-    directory = TRAIN_DIR / kind
+    directory = SAMPLE_DIRS[kind]
     paths = sorted(path for path in directory.iterdir() if path.suffix.lower() in IMAGE_EXTENSIONS)[:NUM_SAMPLES]
     if not paths:
         raise SystemExit(f"no images found in {directory}")

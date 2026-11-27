@@ -2,7 +2,8 @@
 
 Runs the exact augmented_moire_dataset used by train_baseline.py (with
 transform=None so the returned PIL images stay viewable) over a few paired
-clean / real-moire train scenes for several passes, captures the drawn recipe
+clean / real-moire scenes drawn from the first configured clean/moire folder
+pair for several passes, captures the drawn recipe
 with delegate-only recorders around the training dispatch points, saves every
 input and output JPEG plus thumbnails, and writes a self-contained HTML
 gallery and a JSON manifest into the output folder for offline analysis.
@@ -38,27 +39,24 @@ from config import (  # noqa: E402
     AUGMENTATION_PREVIEW_THUMB_JPEG_QUALITY,
     AUGMENTATION_PREVIEW_THUMB_PREFIX,
     AUGMENTATION_PREVIEW_THUMB_SIZE,
+    CLEAN_IMAGE_FOLDERS,
     CLEAN_LABEL,
-    DEFAULT_DATA_DIR,
     DEFAULT_SEED,
     GROUP_AUGMENT_COUNT_RANGE,
     JPEG_QUALITY,
     JSON_ENCODING,
     JSON_INDENT,
     MOIRE_AUGMENT_PROB,
+    MOIRE_IMAGE_FOLDERS,
     MOIRE_LABEL,
-    NEGATIVES_DIR,
-    POSITIVES_DIR,
-    TRAIN_SPLIT_DIR,
 )
 from spatial_moire.baseline.augmentation import augmented_moire_dataset  # noqa: E402
 import spatial_moire.baseline.augmentation as augmentation_module  # noqa: E402
-from spatial_moire.baseline.data import list_pairs, samples_from_pairs  # noqa: E402
+from spatial_moire.baseline.data import list_folder_pairs, samples_from_pairs  # noqa: E402
 from spatial_moire.moire_types import MOIRE_TYPES, type_probabilities  # noqa: E402
 from spatial_moire.synthesis.groups import AUGMENTATION_GROUPS  # noqa: E402
 
 PAGE_TITLE: str = "Train augmentation preview — Spatial-Moire-Effect-Detection"
-KIND_BY_SOURCE_DIR: dict[str, str] = {POSITIVES_DIR: "moire", NEGATIVES_DIR: "clean"}
 PATH_SHORT_TEXT: dict[str, str] = {
     "clean_to_moire": "clean → moire (synthesized)",
     "clean_groups_only": "clean, groups only",
@@ -164,13 +162,20 @@ class draw_recorder:
         self._originals = None
 
 
-def select_scene_pairs(train_dir: Path, num_scenes: int, rng: np.random.Generator) -> list[tuple[Path, Path]]:
-    """Pick num_scenes paired (moire, clean) scenes with a seeded draw, kept in filename order."""
+def select_scene_pairs(num_scenes: int, rng: np.random.Generator) -> list[tuple[Path, Path]]:
+    """Pick num_scenes paired (moire, clean) scenes from the first config folder pair with a seeded draw, kept in filename order.
+
+    Only the first clean/moire folder pair is used so every scene stem stays
+    unique: the gallery and the manifest key records by (kind, stem) and stems
+    repeat across folder pairs.
+    """
     if num_scenes < 1:
         raise SystemExit("--num-scenes must be at least 1")
-    pairs = list_pairs(split_dir=train_dir)
+    pairs = list_folder_pairs(clean_folders=CLEAN_IMAGE_FOLDERS, moire_folders=MOIRE_IMAGE_FOLDERS)[0]
     if num_scenes > len(pairs):
-        raise SystemExit(f"--num-scenes {num_scenes} exceeds the {len(pairs)} paired scenes under {train_dir}")
+        raise SystemExit(
+            f"--num-scenes {num_scenes} exceeds the {len(pairs)} paired scenes under {MOIRE_IMAGE_FOLDERS[0]}"
+        )
     chosen = sorted(int(index) for index in rng.permutation(len(pairs))[:num_scenes])
     return [pairs[index] for index in chosen]
 
@@ -370,8 +375,6 @@ def reproduction_command(args: argparse.Namespace) -> str:
         f"--passes {args.passes}",
         f"--seed {args.seed}",
     ]
-    if args.data_dir != DEFAULT_DATA_DIR:
-        parts.append(f"--data-dir {args.data_dir}")
     if args.output_dir != AUGMENTATION_PREVIEW_OUTPUT_DIR:
         parts.append(f"--output-dir {args.output_dir}")
     if args.jpeg_quality != JPEG_QUALITY:
@@ -407,7 +410,10 @@ def render_html_document(
     summary_rows = [
         ("generated", generated_at),
         ("script", "src/preview_train_augmentation.py"),
-        ("dataset", f"{args.data_dir} · {TRAIN_SPLIT_DIR} split (paired gt / moire scenes)"),
+        (
+            "dataset",
+            f"first clean/moire source folder pair · {CLEAN_IMAGE_FOLDERS[0]} + {MOIRE_IMAGE_FOLDERS[0]} (paired scenes)",
+        ),
         ("inputs", f"{args.num_scenes} clean + {args.num_scenes} real moire"),
         ("passes", f"{args.passes} over one dataset instance (rng advances like epochs)"),
         ("seed", str(args.seed)),
@@ -532,7 +538,6 @@ def parse_args() -> argparse.Namespace:
             "and save the outputs for analysis."
         ),
     )
-    parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     parser.add_argument("--output-dir", type=Path, default=AUGMENTATION_PREVIEW_OUTPUT_DIR)
     parser.add_argument("--num-scenes", type=int, default=AUGMENTATION_PREVIEW_NUM_SCENES)
     parser.add_argument("--passes", type=int, default=AUGMENTATION_PREVIEW_PASSES)
@@ -569,11 +574,11 @@ def main() -> None:
     if args.passes < 1:
         raise SystemExit("--passes must be at least 1")
     selection_rng = np.random.default_rng(seed=args.seed)
-    train_dir = args.data_dir / TRAIN_SPLIT_DIR
-    pairs = select_scene_pairs(train_dir=train_dir, num_scenes=args.num_scenes, rng=selection_rng)
+    pairs = select_scene_pairs(num_scenes=args.num_scenes, rng=selection_rng)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     samples = samples_from_pairs(pairs=pairs)
-    scene_kinds = [KIND_BY_SOURCE_DIR[Path(sample["path"]).parent.name] for sample in samples]
+    # samples_from_pairs emits the moire sample before the clean sample of each pair.
+    scene_kinds = [kind for _pair in pairs for kind in ("moire", "clean")]
     scene_stems = [Path(sample["path"]).stem for sample in samples]
     print(
         f"previewing {args.num_scenes} paired scenes ({args.num_scenes} clean + {args.num_scenes} real moire) "
@@ -614,8 +619,9 @@ def main() -> None:
     probabilities = type_probabilities(type_names=type_names)
     manifest = {
         "seed": args.seed,
-        "data_dir": str(args.data_dir),
-        "split": TRAIN_SPLIT_DIR,
+        "clean_image_folders": [str(folder) for folder in CLEAN_IMAGE_FOLDERS],
+        "moire_image_folders": [str(folder) for folder in MOIRE_IMAGE_FOLDERS],
+        "selected_scenes_folder": str(CLEAN_IMAGE_FOLDERS[0]),
         "selected_scenes": [gt_path.name for _moire_path, gt_path in pairs],
         "config": {
             "num_scenes": args.num_scenes,

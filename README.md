@@ -12,7 +12,8 @@ A computer-vision project for **detecting the spatial moiré effect** — the wa
 - [How it works](#how-it-works)
 - [Planned project structure](#planned-project-structure)
 - [Getting started](#getting-started)
-- [Usage (planned)](#usage-planned)
+- [Usage](#usage)
+- [Dataset and splits](#dataset-and-splits)
 - [Documentation](#documentation)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
@@ -98,25 +99,58 @@ python -m venv .venv
 .venv\Scripts\activate         # Windows
 source .venv/bin/activate      # Linux / macOS
 
-# 3. Install dependencies (planned — will be added with the first release)
+# 3. Install dependencies (torch, torchvision, imgaug, matplotlib, tqdm, ...)
 pip install -r requirements.txt
 ```
 
-> **Project status:** early stage. The repository currently ships documentation and licensing only. Package code will land on the [`dev`](https://github.com/babak-abad/Spatial-Moire-Effect-Detection/tree/dev) branch first, and the steps above become fully functional with the first release.
+> **Project status:** the moiré synthesis / augmentation library and the ResNet-18 baseline pipeline (training, evaluation, offline sample generation, augmentation preview) are implemented in `src/` with sanity tests in `tests/`; a packaged release is still pending. Code lands on the [`dev`](https://github.com/babak-abad/Spatial-Moire-Effect-Detection/tree/dev) branch first.
 
-## Usage (planned)
+## Usage
 
-The command-line interface is not implemented yet. The intended entry point:
+Run the scripts from the repository root inside the activated environment. The
+dataset source folders and the 0.8 / 0.1 / 0.1 train / val / test split
+fractions come from `src/config.py` (see [Dataset and splits](#dataset-and-splits)).
 
 ```bash
-# Planned CLI (interface may change)
-python -m spatial_moire path/to/photo.jpg --output results/
+# Train the ResNet-18 baseline (writes best_model.pt, history.json,
+# split_manifest.json, training_curves.png into results/baseline_resnet18)
+python src/train_baseline.py
+
+# Evaluate the held-out test split (re-derives the exact split
+# from split_manifest.json next to best_model.pt)
+python src/evaluate_baseline.py
+
+# Generate offline synthetic moiré samples from clean sources
+python src/generate_moire_samples.py
+
+# Render the HTML gallery of the training augmentation behavior
+python src/preview_train_augmentation.py
 ```
+
+Useful flags: `--epochs`, `--batch-size`, `--seed` (train — also fixes the
+split and is recorded in the manifest), `--moire-augment-prob`,
+`--group-augment` (train), `--threshold`, `--seed` (evaluate — overrides the
+manifest seed), `--sampling`, `--groups` (sample generation), `--num-scenes`,
+`--passes` (preview).
+
+## Dataset and splits
+
+The baseline consumes the local LCDMoire subset as two index-aligned folder
+pools configured in `src/config.py` — `CLEAN_IMAGE_FOLDERS` (clean / gt) and
+`MOIRE_IMAGE_FOLDERS` (real moire) — pooling the physical `train/` and `test/`
+subfolders. Every scene exists as a filename-matched gt / moire twin pair;
+`split_train_val_test` pools all pairs, shuffles them at pair level with the
+training seed and splits them 80 / 10 / 10 into train / val / test
+(≈ 5056 / 632 / 632 samples), so twins never leak across splits. The exact
+split is recorded in `split_manifest.json` next to the trained model, and
+evaluation re-derives the test portion from it. Full details:
+[`docs/dataset.md`](docs/dataset.md).
 
 ## Documentation
 
 Detailed design documents live in [`docs/`](docs/):
 
+- [`docs/dataset.md`](docs/dataset.md) — the dataset source pools and the pooled train / val / test split: index-aligned clean/moire folder lists, the pair-level seeded shuffle, the 0.8/0.1/0.1 fractions, the split manifest and how training / evaluation consume it.
 - [`docs/augmentation.md`](docs/augmentation.md) — the augmentation pipeline: how clean screen photographs become labeled moiré training samples through weighted type sampling, procedural moiré synthesis, and the six seeded capture-style augmentation groups, with flow diagrams, the `apply_group_augmentation` algorithm, CLI flags, and a tuning guide.
 - [`docs/moire_types.md`](docs/moire_types.md) — the canonical catalogue of the nine moiré effect types: physical causes, visual signatures, prevalence weights, and their mapping onto the synthesis generators.
 

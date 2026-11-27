@@ -22,13 +22,13 @@ from spatial_moire.baseline.data import (  # noqa: E402
     build_train_transform,
     moire_dataset,
     save_split_manifest,
-    split_train_val,
+    split_train_val_test,
 )
 from spatial_moire.baseline.engine import run_training  # noqa: E402
 from spatial_moire.baseline.metrics import plot_training_history  # noqa: E402
 from spatial_moire.baseline.model import build_resnet18_classifier  # noqa: E402
 from config import (  # noqa: E402
-    DEFAULT_DATA_DIR,
+    CLEAN_IMAGE_FOLDERS,
     DEFAULT_OUTPUT_DIR,
     DEFAULT_SEED,
     GROUP_AUGMENT_COUNT_RANGE,
@@ -37,17 +37,19 @@ from config import (  # noqa: E402
     JSON_INDENT,
     LEARNING_RATE,
     MOIRE_AUGMENT_PROB,
+    MOIRE_IMAGE_FOLDERS,
     MOIRE_LABEL,
     PIN_MEMORY,
+    SPLIT_MANIFEST_FILENAME,
+    TEST_FRACTION,
     TRAIN_BATCH_SIZE,
     TRAIN_EPOCHS,
+    TRAIN_FRACTION,
     TRAIN_NUM_WORKERS,
     TRAIN_PERSISTENT_WORKERS,
     TRAIN_PRETRAINED,
     TRAIN_SHUFFLE,
     TRAINING_CURVES_FILENAME,
-    TRAIN_SPLIT_DIR,
-    TRAIN_VAL_SPLIT_FILENAME,
     VAL_FRACTION,
     VAL_NUM_WORKERS_DIVISOR,
     VAL_NUM_WORKERS_MIN,
@@ -68,7 +70,6 @@ def seed_everything(seed: int) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train the ResNet-18 moire detection baseline on the local LCDMoire subset.")
-    parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--epochs", type=int, default=TRAIN_EPOCHS)
     parser.add_argument("--batch-size", type=int, default=TRAIN_BATCH_SIZE)
@@ -79,7 +80,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="disable the ultralytics-style batch progress bars and epoch summary rows",
     )
-    parser.add_argument("--val-fraction", type=float, default=VAL_FRACTION)
     parser.add_argument("--num-workers", type=int, default=TRAIN_NUM_WORKERS)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--moire-augment-prob", type=float, default=MOIRE_AUGMENT_PROB)
@@ -123,13 +123,17 @@ def main() -> None:
     if device.type == "cuda":
         print(f"gpu: {torch.cuda.get_device_name(device=device)}", flush=True)
 
-    train_samples, val_samples = split_train_val(
-        train_dir=args.data_dir / TRAIN_SPLIT_DIR,
-        val_fraction=args.val_fraction,
+    train_samples, val_samples, test_samples = split_train_val_test(
+        clean_folders=CLEAN_IMAGE_FOLDERS,
+        moire_folders=MOIRE_IMAGE_FOLDERS,
+        train_fraction=TRAIN_FRACTION,
+        val_fraction=VAL_FRACTION,
+        test_fraction=TEST_FRACTION,
         seed=args.seed,
     )
     train_positives = sum(1 for sample in train_samples if sample["label"] == MOIRE_LABEL)
     val_positives = sum(1 for sample in val_samples if sample["label"] == MOIRE_LABEL)
+    test_positives = sum(1 for sample in test_samples if sample["label"] == MOIRE_LABEL)
     print(
         f"train: {len(train_samples)} samples ({train_positives} moire / {len(train_samples) - train_positives} clean)",
         flush=True,
@@ -138,13 +142,20 @@ def main() -> None:
         f"val: {len(val_samples)} samples ({val_positives} moire / {len(val_samples) - val_positives} clean)",
         flush=True,
     )
+    print(
+        f"test: {len(test_samples)} samples ({test_positives} moire / {len(test_samples) - test_positives} clean) held out by the split",
+        flush=True,
+    )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     save_split_manifest(
         train_samples=train_samples,
         val_samples=val_samples,
-        path=args.output_dir / TRAIN_VAL_SPLIT_FILENAME,
+        test_samples=test_samples,
+        path=args.output_dir / SPLIT_MANIFEST_FILENAME,
         seed=args.seed,
-        val_fraction=args.val_fraction,
+        train_fraction=TRAIN_FRACTION,
+        val_fraction=VAL_FRACTION,
+        test_fraction=TEST_FRACTION,
     )
 
     train_type_names = list(MOIRE_TYPES) if args.moire_augment_types is None else sorted(args.moire_augment_types)

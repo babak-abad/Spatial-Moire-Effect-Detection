@@ -23,6 +23,7 @@ Machine-readable counterparts:
 | Every hard-coded range | `src/config.py` (`GROUP_*`, per-generator `*_RANGE`) |
 | On-the-fly training dataset | `src/spatial_moire/baseline/augmentation.py` (`augmented_moire_dataset`) |
 | Offline sample generation | `src/generate_moire_samples.py` |
+| Dataset source pools & split fractions | `src/config.py` (`CLEAN_IMAGE_FOLDERS`, `MOIRE_IMAGE_FOLDERS`, `TRAIN_FRACTION` / `VAL_FRACTION` / `TEST_FRACTION`) — see `docs/dataset.md` |
 
 ## Pipeline overview
 
@@ -134,7 +135,9 @@ Default applied count per image: `GROUP_AUGMENT_COUNT_RANGE = (2, 4)`.
 ### On-the-fly training augmentation
 
 `augmented_moire_dataset` (in `src/spatial_moire/baseline/augmentation.py`),
-used by `src/train_baseline.py`:
+used by `src/train_baseline.py`. Its samples come from the config-driven
+pooled split (see `docs/dataset.md`): training feeds it the train portion of
+`split_train_val_test` and validates on the val portion:
 
 ```mermaid
 flowchart TD

@@ -1,7 +1,8 @@
 """Central configuration and constants for the Spatial-Moire-Effect-Detection project.
 
 Single source of truth for every hard-coded value: repository paths, dataset
-layout, class labels, transform / training / evaluation / DataLoader /
+source pools (index-aligned clean / moire folder lists), split fractions, class
+labels, transform / training / evaluation / DataLoader /
 training-progress console defaults, output filenames, plotting settings,
 moire type prevalence weights, pattern-engine constants, the synthesis
 randomization ranges and
@@ -21,17 +22,41 @@ from pathlib import Path
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 SRC_ROOT: Path = REPO_ROOT / "src"
 
-# --- Dataset layout ------------------------------------------------------------
-TRAIN_SPLIT_DIR: str = "train"
-TEST_SPLIT_DIR: str = "test"
-POSITIVES_DIR: str = "moire"
-NEGATIVES_DIR: str = "gt"
+# --- Dataset source pools -------------------------------------------------------
+# Two index-aligned folder lists separate the image classes: CLEAN_IMAGE_FOLDERS
+# holds the moire-free (clean / gt) images, MOIRE_IMAGE_FOLDERS the real moire
+# images. CLEAN_IMAGE_FOLDERS[i] and MOIRE_IMAGE_FOLDERS[i] contain the SAME
+# scenes matched by filename (LCDMoire gt / moire twins), so every scene pair is
+# one indivisible split unit and neither twin can leak across train / val / test.
+# Folders are scanned non-recursively; unequal list lengths, missing or empty
+# folders and filename mismatches raise ValueError when pairs are collected.
 IMAGE_EXTENSIONS: tuple[str, ...] = (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff")
 
 DEFAULT_DATA_DIR: Path = REPO_ROOT / "datasets" / "LCDMoire" / "my_dataset_final"
 DEFAULT_OUTPUT_DIR: Path = REPO_ROOT / "results" / "baseline_resnet18"
-DEFAULT_SOURCE_DIR: Path = DEFAULT_DATA_DIR / TEST_SPLIT_DIR / NEGATIVES_DIR
 SAMPLES_OUTPUT_DIR: Path = REPO_ROOT / "outputs"
+
+CLEAN_IMAGE_FOLDERS: list[Path] = [
+    DEFAULT_DATA_DIR / "train" / "gt",
+    DEFAULT_DATA_DIR / "test" / "gt",
+]
+MOIRE_IMAGE_FOLDERS: list[Path] = [
+    DEFAULT_DATA_DIR / "train" / "moire",
+    DEFAULT_DATA_DIR / "test" / "moire",
+]
+
+# --- Split fractions (applied to the pooled scene pairs) ---------------------------
+# The three fractions must lie in [0, 1] and sum to 1.0. Train and val pair
+# counts are rounded from the fractions, test receives the remainder, so every
+# pooled scene pair lands in exactly one split. The split is drawn at pair level
+# (twins stay together) by split_train_val_test with the training seed.
+TRAIN_FRACTION: float = 0.8
+VAL_FRACTION: float = 0.1
+TEST_FRACTION: float = 0.1
+
+# Offline sample synthesis (generate_moire_samples.py) consumes clean images
+# only; it defaults to the first clean pool.
+DEFAULT_SOURCE_DIR: Path = CLEAN_IMAGE_FOLDERS[0]
 
 # --- Class labels -----------------------------------------------------------------
 MOIRE_LABEL: int = 1
@@ -70,7 +95,6 @@ TRAIN_EPOCHS: int = 10
 TRAIN_BATCH_SIZE: int = 32
 TRAIN_NUM_WORKERS: int = 8
 TRAIN_PRETRAINED: bool = True
-VAL_FRACTION: float = 0.2
 LEARNING_RATE: float = 1e-4
 WEIGHT_DECAY: float = 1e-4
 MOIRE_AUGMENT_PROB: float = 0.5
@@ -103,9 +127,10 @@ MOIRE_SAMPLE_FILENAME_TEMPLATE: str = "moire_{type_name}__{source_stem}_v{varian
 
 # --- Train-augmentation preview defaults (preview_train_augmentation.py) -------------------
 # The preview script runs the training augmentation class (augmented_moire_dataset,
-# transform=None) over a few paired clean / real-moire train scenes for several
-# passes and saves every input and output JPEG plus an HTML gallery and a JSON
-# manifest into its own output folder for offline analysis.
+# transform=None) over a few paired clean / real-moire scenes drawn from the first
+# configured clean/moire folder pair for several passes and saves every input and
+# output JPEG plus an HTML gallery and a JSON manifest into its own output folder
+# for offline analysis.
 AUGMENTATION_PREVIEW_OUTPUT_DIR: Path = SAMPLES_OUTPUT_DIR / "augmentation_preview"
 AUGMENTATION_PREVIEW_HTML_FILENAME: str = "augmentation_preview.html"
 AUGMENTATION_PREVIEW_MANIFEST_FILENAME: str = "augmentation_preview_manifest.json"
@@ -122,7 +147,7 @@ AUGMENTATION_PREVIEW_OUTPUT_FILENAME_TEMPLATE: str = "output__{kind}__{stem}__p{
 # --- Output filenames -----------------------------------------------------------------------------------
 BEST_MODEL_FILENAME: str = "best_model.pt"
 HISTORY_FILENAME: str = "history.json"
-TRAIN_VAL_SPLIT_FILENAME: str = "train_val_split.json"
+SPLIT_MANIFEST_FILENAME: str = "split_manifest.json"
 TRAINING_CURVES_FILENAME: str = "training_curves.png"
 TEST_METRICS_FILENAME: str = "test_metrics.json"
 CONFUSION_MATRIX_FILENAME: str = "confusion_matrix.png"

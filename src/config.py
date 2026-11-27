@@ -91,6 +91,24 @@ MAX_DRAWN_PREVIEW_IMAGES: int = 8
 # in sync with JPEG_QUALITY saving.
 MOIRE_SAMPLE_FILENAME_TEMPLATE: str = "moire_{type_name}__{source_stem}_v{variant:02d}.jpg"
 
+# --- Train-augmentation preview defaults (preview_train_augmentation.py) -------------------
+# The preview script runs the training augmentation class (augmented_moire_dataset,
+# transform=None) over a few paired clean / real-moire train scenes for several
+# passes and saves every input and output JPEG plus an HTML gallery and a JSON
+# manifest into its own output folder for offline analysis.
+AUGMENTATION_PREVIEW_OUTPUT_DIR: Path = SAMPLES_OUTPUT_DIR / "augmentation_preview"
+AUGMENTATION_PREVIEW_HTML_FILENAME: str = "augmentation_preview.html"
+AUGMENTATION_PREVIEW_MANIFEST_FILENAME: str = "augmentation_preview_manifest.json"
+AUGMENTATION_PREVIEW_NUM_SCENES: int = 6
+AUGMENTATION_PREVIEW_PASSES: int = 3
+AUGMENTATION_PREVIEW_THUMB_SIZE: tuple[int, int] = (320, 320)
+AUGMENTATION_PREVIEW_THUMB_JPEG_QUALITY: int = 85
+AUGMENTATION_PREVIEW_THUMB_PREFIX: str = "thumb_"
+# Format keys: kind (clean|moire), source stem, 1-based pass; the .jpg extension
+# must stay in sync with JPEG_QUALITY / thumbnail saving.
+AUGMENTATION_PREVIEW_INPUT_FILENAME_TEMPLATE: str = "input__{kind}__{stem}{suffix}"
+AUGMENTATION_PREVIEW_OUTPUT_FILENAME_TEMPLATE: str = "output__{kind}__{stem}__p{pass_num:02d}.jpg"
+
 # --- Output filenames -----------------------------------------------------------------------------------
 BEST_MODEL_FILENAME: str = "best_model.pt"
 HISTORY_FILENAME: str = "history.json"

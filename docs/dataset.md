@@ -3,177 +3,133 @@
 This document is the canonical description of where the baseline's images come
 from and how every image is assigned to the train, validation or test split.
 The baseline consumes two **independent per-class folder pools** — one
-moire-free (clean / gt), one real-moire — and derives the split **per class**
-from percentages over per-class split units. There is no pairing between the
-pools: the two lists may differ in length and content, and a sample's label
-comes from its pool alone (`docs/separated_pipelines_plan.html` records the
-design rationale).
+moire-free (clean / gt), one real-moire — and assigns each source folder to
+exactly one split via six explicit folder lists. There is no pairing between
+the pools: the two class lists may differ in length and content, and a
+sample's label comes from its pool alone.
 
 Machine-readable counterparts:
 
 | Concern | Module |
 |---|---|
-| Clean / moire source folder pools | `src/config.py` (`CLEAN_IMAGE_FOLDERS`, `MOIRE_IMAGE_FOLDERS`) |
-| Split fractions | `src/config.py` (`TRAIN_FRACTION`, `VAL_FRACTION`, `TEST_FRACTION`) |
-| Unit-grouping threshold | `src/config.py` (`FOLDER_UNIT_MAX_IMAGES`) |
-| Split engine | `src/spatial_moire/baseline/data.py` (`collect_class_samples`, `build_split_units`, `split_train_val_test`) |
-| Split manifest | `src/spatial_moire/baseline/data.py` (`save_split_manifest`, `load_split_manifest`, `SPLIT_MANIFEST_ALGORITHM`) and `src/config.py` (`SPLIT_MANIFEST_FILENAME`) |
+| Clean / moire source folder lists | `src/config.py` (`CLEAN_IMAGE_FOLDERS_{TRAIN,VAL,TEST}`, `MOIRE_IMAGE_FOLDERS_{TRAIN,VAL,TEST}`) |
+| Combined pools (ordered unions of the six lists) | `src/config.py` (`CLEAN_IMAGE_FOLDERS`, `MOIRE_IMAGE_FOLDERS`) |
+| Split engine | `src/spatial_moire/baseline/data.py` (`collect_class_samples`, `split_datasets`) |
 
-## Source pools
+## Source pools and folder lists
 
-Two flat, independent folder lists, defined in `src/config.py`:
+Six flat, independent folder lists, defined in `src/config.py`. The lists
+declare the split directly — the split **is** the folder assignment:
 
-- `CLEAN_IMAGE_FOLDERS` — 65 folders holding 3583 moire-free images: the
-  pooled `gt` (ground-truth) halves of the local LCDMoire subset
-  (`train/` and `test/`) plus 63 folders of moire-free phone photographs.
-- `MOIRE_IMAGE_FOLDERS` — 104 folders holding 3545 real-moire images: the
-  pooled `moire` halves of the LCDMoire subset plus 102 folders of
-  moire-affected phone photographs.
+- `CLEAN_IMAGE_FOLDERS_TRAIN` — the `gt` half of the local LCDMoire `train/`
+  subset (1 folder, 3000 images).
+- `CLEAN_IMAGE_FOLDERS_VAL` — 63 folders of moire-free phone photographs
+  (423 images).
+- `CLEAN_IMAGE_FOLDERS_TEST` — the `gt` half of the LCDMoire `test/` subset
+  (1 folder, 160 images).
+- `MOIRE_IMAGE_FOLDERS_TRAIN` — the `moire` half of the LCDMoire `train/`
+  subset (1 folder, 3000 images).
+- `MOIRE_IMAGE_FOLDERS_VAL` — 102 folders of moire-affected phone
+  photographs (385 images).
+- `MOIRE_IMAGE_FOLDERS_TEST` — the `moire` half of the LCDMoire `test/`
+  subset (1 folder, 160 images).
 
-The lists are deliberately **not** index-aligned and share no filename
-contract — either list can grow or shrink independently. Folders are scanned
-non-recursively for `IMAGE_EXTENSIONS` files. `collect_class_samples` walks
-one pool and emits `{"path", "label"}` dicts in (folder, filename) order; it
-raises `ValueError` for a missing folder or one that holds no supported
-image. The label comes from the pool alone — never from image content or
-augmentation.
+The combined pools `CLEAN_IMAGE_FOLDERS` (65 folders, 3583 images) and
+`MOIRE_IMAGE_FOLDERS` (104 folders, 3545 images) exist for consumers that
+address a class's folders positionally; each pool is the ordered union of its
+class's train + val + test lists.
+
+The class lists are deliberately **not** index-aligned and share no filename
+contract — either class's lists can grow or shrink independently. Folders are
+scanned non-recursively for `IMAGE_EXTENSIONS` files. `collect_class_samples`
+walks one folder list and emits `{"path", "label"}` dicts in (folder,
+filename) order; it raises `ValueError` for a missing folder or one that holds
+no supported image. The label comes from the list alone — never from image
+content or augmentation.
 
 `src/generate_moire_samples.py` consumes clean images only and defaults to
-`CLEAN_IMAGE_FOLDERS[0]` (`DEFAULT_SOURCE_DIR`).
+`CLEAN_IMAGE_FOLDERS_TRAIN[0]` (`DEFAULT_SOURCE_DIR`).
 
-## Split units
+## Split semantics
 
-Before splitting, each class stream is grouped into **split units** — the
-indivisible blocks the split never cuts in half (`build_split_units`):
-
-- a folder holding at most `FOLDER_UNIT_MAX_IMAGES` (default 32) images is one
-  atomic unit, so burst-grouped captures of one scene stay together;
-- a larger folder contributes one unit per image, and images sharing a
-  filename stem across the larger folders of one stream merge into a single
-  unit, so repeated scene stems cannot straddle splits.
-
-Units keep pool order (folder order, then filename order); with the default
-pools this yields 3063 clean units and 3102 moire units. Unit grouping never
-crosses classes: a gt / moire twin pair of the same LCDMoire scene may land in
-different splits — class balance is enforced at batch level by the balanced
-batches of `docs/augmentation.md`, not by the split.
-
-## Split algorithm
-
-`split_train_val_test` in `src/spatial_moire/baseline/data.py`:
+`split_datasets` in `src/spatial_moire/baseline/data.py`:
 
 ```text
-validate fractions (each in [0, 1], sum == 1.0)         → ValueError otherwise
-clean_units = build_split_units(CLEAN_IMAGE_FOLDERS, 0)
-moire_units = build_split_units(MOIRE_IMAGE_FOLDERS, 1)
-random.Random(seed).shuffle(clean_units)                 # per-class shuffles
-random.Random(seed + 1).shuffle(moire_units)
-
-per stream, independently:
-    train_count = round(len(units) * TRAIN_FRACTION)     # unit-level cuts
-    val_count   = round(len(units) * VAL_FRACTION)
-    train      ← units[:train_count]
-    val        ← units[train_count : train_count + val_count]
-    test       ← units[train_count + val_count :]        # the remainder
+resolve the six folder lists (explicit args, else the config defaults)
+validate per class: every list non-empty; the train / val / test lists of
+    one class pairwise disjoint                       → ValueError otherwise
+train = collect_class_samples(CLEAN_..._TRAIN, 0) + collect_class_samples(MOIRE_..._TRAIN, 1)
+val   = collect_class_samples(CLEAN_..._VAL,   0) + collect_class_samples(MOIRE_..._VAL,   1)
+test  = collect_class_samples(CLEAN_..._TEST,  0) + collect_class_samples(MOIRE_..._TEST,  1)
 each split's sample list = its clean samples followed by its moire samples
 ```
 
-With the default pools (3063 clean / 3102 moire units) and the default
-fractions 0.8 / 0.1 / 0.1 that yields **5676 / 688 / 764 samples** — train
-2844 clean + 2832 moire, val 337 + 351, test 402 + 362: near 50 / 50 by
-construction, and exactly 50 / 50 in every train batch via balanced batches.
+With the default lists that yields **6000 / 808 / 320 samples** — train 3000
+clean + 3000 moire (exactly 50 / 50 by construction, and 50 / 50 in every
+train batch via balanced batches), val 423 clean + 385 moire, test 160 clean
++ 160 moire.
 
 Key properties:
 
-- **Per-class independence** — the two streams are collected, grouped,
-  shuffled and cut separately; nothing couples them.
-- **Unit-level atomicity** — a small folder's burst and a shared scene stem
-  within one stream always land in the same split.
-- **Exact coverage per class** — train and val unit counts are
-  `round(units × fraction)` and test receives the remainder, so every pooled
-  image is in exactly one split, without duplicates.
-- **Determinism** — two seeded shuffles (`seed`, `seed + 1`); the same seed
-  always reproduces the same split.
+- **Per-class independence** — the two classes are collected and assigned
+  separately; nothing couples them.
+- **Determinism** — no shuffle, no seed, no sampling: the split is fully
+  determined by the six lists, so repeated calls reproduce it exactly and
+  training and evaluation always agree.
+- **Exact coverage** — every folder (and therefore every pooled image) belongs
+  to exactly one split per class, without duplicates.
 
 ```mermaid
 flowchart TD
-    A["CLEAN_IMAGE_FOLDERS<br/>(65 clean / gt folders)"] --> C["collect_class_samples<br/>+ build_split_units"]
-    B["MOIRE_IMAGE_FOLDERS<br/>(104 moire folders)"] --> D["collect_class_samples<br/>+ build_split_units"]
-    C --> E["clean units · 3063<br/>shuffle random.Random(seed)"]
-    D --> F["moire units · 3102<br/>shuffle random.Random(seed + 1)"]
-    E --> G["per-stream cuts<br/>round(units × 0.8) / round(units × 0.1) / remainder"]
-    F --> G
-    G --> H["train samples<br/>(clean then moire)"]
-    G --> I["val samples"]
-    G --> J["test samples"]
+    A["CLEAN_IMAGE_FOLDERS_TRAIN / VAL / TEST<br/>(65 clean / gt folders)"] --> C["collect_class_samples<br/>per folder list"]
+    B["MOIRE_IMAGE_FOLDERS_TRAIN / VAL / TEST<br/>(104 moire folders)"] --> D["collect_class_samples<br/>per folder list"]
+    C --> G["concatenate per split:<br/>clean samples then moire samples"]
+    D --> G
+    G --> H["train samples · 6000<br/>(3000 + 3000)"]
+    G --> I["val samples · 808<br/>(423 + 385)"]
+    G --> J["test samples · 320<br/>(160 + 160)"]
     H --> L["train_baseline.py<br/>(train + val training)"]
     J --> M["evaluate_baseline.py<br/>(test metrics)"]
-    H --> N["split_manifest.json<br/>algorithm, seed, fractions, lists"]
-    I --> N
-    J --> N
     style L fill:#1b5e20,stroke:#1b5e20,color:#ffffff
     style M fill:#0d47a1,stroke:#0d47a1,color:#ffffff
-    style N fill:#e65100,stroke:#e65100,color:#ffffff
 ```
 
-## The split manifest
-
-`src/train_baseline.py` writes `split_manifest.json` next to `best_model.pt`
-(`SPLIT_MANIFEST_FILENAME` in `src/config.py`) with the split algorithm
-marker (`SPLIT_MANIFEST_ALGORITHM = "per_class_units_v1"`), the seed, the
-three fractions, the `FOLDER_UNIT_MAX_IMAGES` threshold the units were built
-with, the sample counts and the full train / val / test sample lists.
-
-`src/evaluate_baseline.py` re-derives the test split from the settings
-recorded in that manifest, so it always evaluates on the exact images
-training held out — even when `src/config.py` fractions have changed since.
-A manifest written by a different split algorithm is rejected with
-`ValueError` instead of being silently replayed. Resolution order for the
-seed and fractions:
-
-1. an explicit `--seed` flag,
-2. the seed and fractions recorded in `split_manifest.json`,
-3. the current `src/config.py` values (`DEFAULT_SEED` and the fraction
-   defaults) when no manifest exists.
 
 ## Consumers
 
 | Script | Reads | Notes |
 |---|---|---|
-| `src/train_baseline.py` | folder pools + fractions + `--seed` | trains on train, validates on val, holds out test; writes `split_manifest.json` |
-| `src/evaluate_baseline.py` | manifest seed / fractions (or config defaults) | evaluates on the re-derived test split; refuses manifests with a foreign `algorithm` marker |
-| `src/preview_train_augmentation.py` | first folder of each class pool | per-class seeded scene picks for the augmentation gallery |
-| `src/generate_moire_samples.py` | `CLEAN_IMAGE_FOLDERS[0]` | offline synthesis consumes clean images only |
+| `src/train_baseline.py` | the six config lists via `split_datasets()` | trains on train, validates on val, holds out test |
+| `src/evaluate_baseline.py` | the six config lists via `split_datasets()` | evaluates on the same deterministic test split — no manifest, no seed |
+| `src/preview_train_augmentation.py` | the two `*_IMAGE_FOLDERS_TRAIN` lists | per-class seeded scene picks for the augmentation gallery |
+| `src/generate_moire_samples.py` | `CLEAN_IMAGE_FOLDERS_TRAIN[0]` | offline synthesis consumes clean images only |
 | `tests/test_data_split.py` | all of the above | pins the guarantees below |
 
 ## Tuning
 
-- **Add a source folder** — append one path to `CLEAN_IMAGE_FOLDERS` or
-  `MOIRE_IMAGE_FOLDERS`; the two lists are independent, so no matching entry
-  is required. A missing or empty folder fails loudly with `ValueError`.
-- **Change the unit grouping** — edit `FOLDER_UNIT_MAX_IMAGES` (small folders
-  are atomic units); retrain, because the manifest records the threshold it
-  was built with.
-- **Change the split ratios** — edit `TRAIN_FRACTION` / `VAL_FRACTION` /
-  `TEST_FRACTION` (they must sum to 1.0) and retrain; the manifest then
-  records the new fractions for evaluation.
-- **Change the draw** — pass `--seed` to `src/train_baseline.py`; the seed is
-  recorded in the manifest so evaluation stays aligned.
+- **Add a source folder** — append one path to the `*_IMAGE_FOLDERS_{TRAIN,
+  VAL, TEST}` list of its class; the class lists are independent, so no
+  matching entry is required. A missing or empty folder fails loudly with
+  `ValueError`.
+- **Move data between splits** — move the folder entry from one list to
+  another (e.g. from val to test). The change takes effect for every consumer
+  on the next run; retrain so the checkpoint and the evaluated split stay
+  aligned.
+- **Reproducibility** — the split needs no seed; `--seed` on
+  `src/train_baseline.py` only fixes the augmentation and DataLoader draws.
 
 ## Validation guarantees
 
 `tests/test_data_split.py` pins the contract:
 
-- each pool is collected independently: a missing or empty folder raises
-  `ValueError`, and every sample's label comes from its pool alone;
-- small folders become one atomic unit, large folders contribute one unit per
-  image, and shared filename stems within one stream's large folders merge
-  into a unit that can never straddle splits;
-- per-stream split sizes follow `round(units × fraction)` with test as the
-  remainder, and the three splits cover every pooled sample exactly once,
-  without duplicates;
-- identical seeds reproduce the split and different seeds change it;
-- invalid fractions and malformed folder pools raise `ValueError`;
-- `split_manifest.json` round-trips the algorithm marker, the unit threshold,
-  the seed, the fractions and all three sample lists, and the split is
-  re-derivable from the recorded settings.
+- the combined pools are the ordered unions of the six lists, and no folder is
+  listed twice within one class;
+- each class's train / val / test lists are non-empty and pairwise disjoint,
+  so a source folder never feeds two splits of one class;
+- each split's sample list equals its two folder lists' samples in (folder,
+  filename) order, with the clean samples followed by the moire samples;
+- the three splits cover every pooled sample exactly once, without
+  duplicates, and labels always follow the folder lists;
+- repeated `split_datasets()` calls reproduce the splits exactly;
+- empty lists, a folder listed in two splits of one class, missing folders
+  and folders without supported images raise `ValueError`.

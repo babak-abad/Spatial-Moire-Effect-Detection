@@ -28,7 +28,7 @@ Machine-readable counterparts:
 | On-the-fly training dataset | `src/spatial_moire/baseline/augmentation.py` (`augmented_moire_dataset`) |
 | Balanced train batches | `src/spatial_moire/baseline/data.py` (`balanced_moire_dataset`, `balanced_shuffle_sampler`), `src/config.py` (`TRAIN_BALANCED_BATCHES`) |
 | Offline sample generation | `src/generate_moire_samples.py` |
-| Dataset source pools & split fractions | `src/config.py` (`CLEAN_IMAGE_FOLDERS`, `MOIRE_IMAGE_FOLDERS`, `TRAIN_FRACTION` / `VAL_FRACTION` / `TEST_FRACTION`) — see `docs/dataset.md` |
+| Dataset source pools & train / val / test folder lists | `src/config.py` (`CLEAN_IMAGE_FOLDERS*`, `MOIRE_IMAGE_FOLDERS*`) — see `docs/dataset.md` |
 
 ## Pipeline overview
 
@@ -139,8 +139,8 @@ Default applied count per image: `GROUP_AUGMENT_COUNT_RANGE = (2, 4)`.
 
 `augmented_moire_dataset` (in `src/spatial_moire/baseline/augmentation.py`),
 used by `src/train_baseline.py`. Its samples come from the config-driven
-per-class split (see `docs/dataset.md`): training feeds it the train portion
-of `split_train_val_test` and validates on the val portion:
+per-class split (see `docs/dataset.md`): training feeds it the train folder
+lists of `split_datasets` and validates on the val folder lists:
 
 ```mermaid
 flowchart TD

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Sampler
 
 SRC_ROOT = Path(__file__).resolve().parent
 if str(SRC_ROOT) not in sys.path:
@@ -23,14 +23,12 @@ from spatial_moire.baseline.data import (  # noqa: E402
     build_eval_transform,
     build_train_transform,
     moire_dataset,
-    save_split_manifest,
-    split_train_val_test,
+    split_datasets,
 )
 from spatial_moire.baseline.engine import run_training  # noqa: E402
 from spatial_moire.baseline.metrics import plot_training_history  # noqa: E402
 from spatial_moire.baseline.model import build_resnet18_classifier  # noqa: E402
 from config import (  # noqa: E402
-    CLEAN_IMAGE_FOLDERS,
     DEFAULT_OUTPUT_DIR,
     DEFAULT_SEED,
     GROUP_AUGMENT_COUNT_RANGE,
@@ -39,21 +37,16 @@ from config import (  # noqa: E402
     JSON_INDENT,
     LEARNING_RATE,
     MOIRE_AUGMENT_PROB,
-    MOIRE_IMAGE_FOLDERS,
     MOIRE_LABEL,
     PIN_MEMORY,
-    SPLIT_MANIFEST_FILENAME,
-    TEST_FRACTION,
     TRAIN_BALANCED_BATCHES,
     TRAIN_BATCH_SIZE,
     TRAIN_EPOCHS,
-    TRAIN_FRACTION,
     TRAIN_NUM_WORKERS,
     TRAIN_PERSISTENT_WORKERS,
     TRAIN_PRETRAINED,
     TRAIN_SHUFFLE,
     TRAINING_CURVES_FILENAME,
-    VAL_FRACTION,
     VAL_NUM_WORKERS_DIVISOR,
     VAL_NUM_WORKERS_MIN,
     VAL_PERSISTENT_WORKERS,
@@ -136,6 +129,91 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+class Moire_Detection_DataLoader(DataLoader):
+    """torch.utils.data.DataLoader subclass owning the moire-detection loader conventions.
+
+    __init__ forwards every argument to DataLoader with the project defaults
+    applied (pin_memory=PIN_MEMORY, batch_size and num_workers from config);
+    the two role factories reproduce exactly the loader setup
+    train_baseline.main used to build inline:
+
+    for_training wires the train loop: a seeded torch.Generator for
+    reproducible shuffling, an optional balanced_shuffle_sampler over the
+    dataset's num_slots interleaved (clean, moire) index space — every
+    even-length batch then holds exactly half clean and half moire items —
+    shuffle=TRAIN_SHUFFLE only when no sampler is set, and persistent
+    workers guarded by num_workers > 0. for_validation wires the val loop:
+    sequential order (shuffle=False), num_workers scaled to
+    max(VAL_NUM_WORKERS_MIN, num_workers // VAL_NUM_WORKERS_DIVISOR), and
+    VAL_PERSISTENT_WORKERS. Loaders only move (image, label) batches; labels
+    come from the dataset alone and never change here.
+    """
+
+    def __init__(
+        self,
+        dataset: moire_dataset,
+        batch_size: int = TRAIN_BATCH_SIZE,
+        shuffle: bool = False,
+        sampler: Sampler[int] | None = None,
+        num_workers: int = TRAIN_NUM_WORKERS,
+        pin_memory: bool = PIN_MEMORY,
+        persistent_workers: bool = False,
+        generator: torch.Generator | None = None,
+    ) -> None:
+        super().__init__(
+            dataset=dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            sampler=sampler,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            persistent_workers=persistent_workers,
+            generator=generator,
+        )
+
+    @classmethod
+    def for_training(
+        cls,
+        dataset: moire_dataset,
+        batch_size: int,
+        num_workers: int,
+        seed: int,
+        balance_batches: bool = False,
+    ) -> Moire_Detection_DataLoader:
+        if balance_batches and not hasattr(dataset, "num_slots"):
+            raise ValueError(
+                "balance_batches=True requires a dataset exposing num_slots "
+                "(balanced_moire_dataset or augmented_moire_dataset with balanced=True)"
+            )
+        sampler = None
+        if balance_batches:
+            sampler = balanced_shuffle_sampler(num_slots=dataset.num_slots, seed=seed)
+        return cls(
+            dataset=dataset,
+            batch_size=batch_size,
+            shuffle=TRAIN_SHUFFLE and sampler is None,
+            sampler=sampler,
+            num_workers=num_workers,
+            persistent_workers=num_workers > 0 and TRAIN_PERSISTENT_WORKERS,
+            generator=torch.Generator().manual_seed(seed),
+        )
+
+    @classmethod
+    def for_validation(
+        cls,
+        dataset: moire_dataset,
+        batch_size: int,
+        num_workers: int,
+    ) -> Moire_Detection_DataLoader:
+        return cls(
+            dataset=dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=max(VAL_NUM_WORKERS_MIN, num_workers // VAL_NUM_WORKERS_DIVISOR),
+            persistent_workers=VAL_PERSISTENT_WORKERS,
+        )
+
+
 def main() -> None:
     args = parse_args()
     seed_everything(seed=args.seed)
@@ -146,14 +224,7 @@ def main() -> None:
     if device.type == "cuda":
         print(f"gpu: {torch.cuda.get_device_name(device=device)}", flush=True)
 
-    train_samples, val_samples, test_samples = split_train_val_test(
-        clean_folders=CLEAN_IMAGE_FOLDERS,
-        moire_folders=MOIRE_IMAGE_FOLDERS,
-        train_fraction=TRAIN_FRACTION,
-        val_fraction=VAL_FRACTION,
-        test_fraction=TEST_FRACTION,
-        seed=args.seed,
-    )
+    train_samples, val_samples, test_samples = split_datasets()
     train_positives = sum(1 for sample in train_samples if sample["label"] == MOIRE_LABEL)
     val_positives = sum(1 for sample in val_samples if sample["label"] == MOIRE_LABEL)
     test_positives = sum(1 for sample in test_samples if sample["label"] == MOIRE_LABEL)
@@ -170,16 +241,6 @@ def main() -> None:
         flush=True,
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    save_split_manifest(
-        train_samples=train_samples,
-        val_samples=val_samples,
-        test_samples=test_samples,
-        path=args.output_dir / SPLIT_MANIFEST_FILENAME,
-        seed=args.seed,
-        train_fraction=TRAIN_FRACTION,
-        val_fraction=VAL_FRACTION,
-        test_fraction=TEST_FRACTION,
-    )
 
     train_type_names = list(MOIRE_TYPES) if args.moire_augment_types is None else sorted(args.moire_augment_types)
     if args.moire_augment_prob > 0.0 or args.group_augment:
@@ -231,31 +292,22 @@ def main() -> None:
         train_set = moire_dataset(samples=train_samples, transform=build_train_transform())
     val_set = moire_dataset(samples=val_samples, transform=build_eval_transform())
     if args.balance_batches:
-        train_sampler = balanced_shuffle_sampler(num_slots=train_set.num_slots, seed=args.seed)
         print(
             f"balanced batches: every train batch of {args.batch_size} holds {args.batch_size // 2} clean + "
             f"{args.batch_size // 2} moire items ({train_set.num_slots} slots per class per epoch)",
             flush=True,
         )
-    else:
-        train_sampler = None
-    train_loader = DataLoader(
+    train_loader = Moire_Detection_DataLoader.for_training(
         dataset=train_set,
         batch_size=args.batch_size,
-        shuffle=TRAIN_SHUFFLE and train_sampler is None,
-        sampler=train_sampler,
         num_workers=args.num_workers,
-        pin_memory=PIN_MEMORY,
-        persistent_workers=args.num_workers > 0 and TRAIN_PERSISTENT_WORKERS,
-        generator=torch.Generator().manual_seed(args.seed),
+        seed=args.seed,
+        balance_batches=args.balance_batches,
     )
-    val_loader = DataLoader(
+    val_loader = Moire_Detection_DataLoader.for_validation(
         dataset=val_set,
         batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=max(VAL_NUM_WORKERS_MIN, args.num_workers // VAL_NUM_WORKERS_DIVISOR),
-        pin_memory=PIN_MEMORY,
-        persistent_workers=VAL_PERSISTENT_WORKERS,
+        num_workers=args.num_workers,
     )
 
     model = build_resnet18_classifier(pretrained=TRAIN_PRETRAINED).to(device=device)

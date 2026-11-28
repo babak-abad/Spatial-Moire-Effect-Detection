@@ -3,7 +3,7 @@
 Runs the exact augmented_moire_dataset used by train_baseline.py (with
 transform=None so the returned PIL images stay viewable) over a few clean and
 real-moire scenes — each drawn with a seeded pick from the first configured
-clean / moire pool folder — for several passes, captures the drawn recipe
+clean / moire train folder — for several passes, captures the drawn recipe
 with delegate-only recorders around the training dispatch points, saves every
 input and output JPEG plus thumbnails, and writes a self-contained HTML
 gallery and a JSON manifest into the output folder for offline analysis.
@@ -39,7 +39,7 @@ from config import (  # noqa: E402
     AUGMENTATION_PREVIEW_THUMB_JPEG_QUALITY,
     AUGMENTATION_PREVIEW_THUMB_PREFIX,
     AUGMENTATION_PREVIEW_THUMB_SIZE,
-    CLEAN_IMAGE_FOLDERS,
+    CLEAN_IMAGE_FOLDERS_TRAIN,
     CLEAN_LABEL,
     DEFAULT_SEED,
     GROUP_AUGMENT_COUNT_RANGE,
@@ -47,7 +47,7 @@ from config import (  # noqa: E402
     JSON_ENCODING,
     JSON_INDENT,
     MOIRE_AUGMENT_PROB,
-    MOIRE_IMAGE_FOLDERS,
+    MOIRE_IMAGE_FOLDERS_TRAIN,
     MOIRE_LABEL,
 )
 from spatial_moire.baseline.augmentation import augmented_moire_dataset  # noqa: E402
@@ -166,23 +166,23 @@ def select_scene_samples(
     num_scenes: int,
     rng: np.random.Generator,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Pick num_scenes clean and num_scenes real-moire scenes from the first config pool folder of each class with a seeded draw, kept in filename order.
+    """Pick num_scenes clean and num_scenes real-moire scenes from the first configured train folder of each class with a seeded draw, kept in filename order.
 
-    Only the first clean pool folder and the first moire pool folder are used
+    Only the first clean train folder and the first moire train folder are used
     so every scene stem stays unique: the gallery and the manifest key
-    records by (kind, stem) and stems repeat across the folders of a pool.
+    records by (kind, stem) and stems repeat across the folders of a class list.
     """
     if num_scenes < 1:
         raise SystemExit("--num-scenes must be at least 1")
-    clean_pool = collect_class_samples(folders=[CLEAN_IMAGE_FOLDERS[0]], label=CLEAN_LABEL)
-    moire_pool = collect_class_samples(folders=[MOIRE_IMAGE_FOLDERS[0]], label=MOIRE_LABEL)
+    clean_pool = collect_class_samples(folders=[CLEAN_IMAGE_FOLDERS_TRAIN[0]], label=CLEAN_LABEL)
+    moire_pool = collect_class_samples(folders=[MOIRE_IMAGE_FOLDERS_TRAIN[0]], label=MOIRE_LABEL)
     if num_scenes > len(clean_pool):
         raise SystemExit(
-            f"--num-scenes {num_scenes} exceeds the {len(clean_pool)} clean images under {CLEAN_IMAGE_FOLDERS[0]}"
+            f"--num-scenes {num_scenes} exceeds the {len(clean_pool)} clean images under {CLEAN_IMAGE_FOLDERS_TRAIN[0]}"
         )
     if num_scenes > len(moire_pool):
         raise SystemExit(
-            f"--num-scenes {num_scenes} exceeds the {len(moire_pool)} moire images under {MOIRE_IMAGE_FOLDERS[0]}"
+            f"--num-scenes {num_scenes} exceeds the {len(moire_pool)} moire images under {MOIRE_IMAGE_FOLDERS_TRAIN[0]}"
         )
     clean_pick = sorted(int(index) for index in rng.permutation(len(clean_pool))[:num_scenes])
     moire_pick = sorted(int(index) for index in rng.permutation(len(moire_pool))[:num_scenes])
@@ -423,7 +423,7 @@ def render_html_document(
         ("script", "src/preview_train_augmentation.py"),
         (
             "dataset",
-            f"first clean pool folder + first moire pool folder · {CLEAN_IMAGE_FOLDERS[0]} + {MOIRE_IMAGE_FOLDERS[0]} (per-class pools)",
+            f"first clean train folder + first moire train folder · {CLEAN_IMAGE_FOLDERS_TRAIN[0]} + {MOIRE_IMAGE_FOLDERS_TRAIN[0]} (per-class train lists)",
         ),
         ("inputs", f"{args.num_scenes} clean + {args.num_scenes} real moire"),
         ("passes", f"{args.passes} over one dataset instance (rng advances like epochs)"),
@@ -630,11 +630,11 @@ def main() -> None:
     probabilities = type_probabilities(type_names=type_names)
     manifest = {
         "seed": args.seed,
-        "clean_image_folders": [str(folder) for folder in CLEAN_IMAGE_FOLDERS],
-        "moire_image_folders": [str(folder) for folder in MOIRE_IMAGE_FOLDERS],
+        "clean_train_image_folders": [str(folder) for folder in CLEAN_IMAGE_FOLDERS_TRAIN],
+        "moire_train_image_folders": [str(folder) for folder in MOIRE_IMAGE_FOLDERS_TRAIN],
         "selected_scenes_folders": {
-            "clean": str(CLEAN_IMAGE_FOLDERS[0]),
-            "moire": str(MOIRE_IMAGE_FOLDERS[0]),
+            "clean": str(CLEAN_IMAGE_FOLDERS_TRAIN[0]),
+            "moire": str(MOIRE_IMAGE_FOLDERS_TRAIN[0]),
         },
         "selected_scenes": {
             "clean": [Path(sample["path"]).name for sample in clean_samples],

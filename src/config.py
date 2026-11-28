@@ -1,7 +1,8 @@
 """Central configuration and constants for the Spatial-Moire-Effect-Detection project.
 
-Single source of truth for every hard-coded value: repository paths, dataset
-source pools (flat per-class folder lists), split unit settings and fractions, class
+Single source of truth for every hard-coded value: repository paths, the
+dataset source folders (six per-class train / val / test folder lists plus
+their combined pools), class
 labels, transform / training / evaluation / DataLoader /
 training-progress console defaults, output filenames, plotting settings,
 moire type prevalence weights, pattern-engine constants, the synthesis
@@ -22,21 +23,29 @@ from pathlib import Path
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 SRC_ROOT: Path = REPO_ROOT / "src"
 
-# --- Dataset source pools -------------------------------------------------------
-# Two flat, independent per-class folder lists: CLEAN_IMAGE_FOLDERS holds the
-# moire-free (clean / gt) images, MOIRE_IMAGE_FOLDERS the real moire images.
-# There is no alignment contract — the lists may differ in length and content;
-# the label of a sample comes from its pool alone. Folders are scanned
-# non-recursively; a missing or empty folder raises ValueError when a pool is
+# --- Dataset source folders ----------------------------------------------------
+# Six explicit per-class folder lists declare the train / val / test split:
+# CLEAN_IMAGE_FOLDERS_{TRAIN,VAL,TEST} hold the moire-free (clean / gt)
+# images, MOIRE_IMAGE_FOLDERS_{TRAIN,VAL,TEST} the real moire images. The
+# split is the folder assignment alone — no fractions, units or sampling.
+# Each list must be non-empty and the train / val / test lists of one class
+# must be pairwise disjoint, so a source folder never feeds two splits
+# (split_datasets in baseline/data.py). There is no alignment contract across
+# classes — the clean and moire lists may differ in length and content; the
+# label of a sample comes from its list alone. Folders are scanned
+# non-recursively; a missing or empty folder raises ValueError when a list is
 # collected (collect_class_samples in baseline/data.py).
 IMAGE_EXTENSIONS: tuple[str, ...] = (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff")
 
 DEFAULT_OUTPUT_DIR: Path = REPO_ROOT / "results" / "baseline_resnet18"
 SAMPLES_OUTPUT_DIR: Path = REPO_ROOT / "outputs"
 
-CLEAN_IMAGE_FOLDERS: list[Path] = [
+CLEAN_IMAGE_FOLDERS_TRAIN: list[Path] = [
     Path(r"D:\projects\Spatial-Moire-Effect-Detection\datasets\LCDMoire\my_dataset_final\train\gt"),
-    Path(r"D:\projects\Spatial-Moire-Effect-Detection\datasets\LCDMoire\my_dataset_final\test\gt"),
+]
+
+# All flat AirDroid clean folders form the validation pool.
+CLEAN_IMAGE_FOLDERS_VAL: list[Path] = [
     Path(r"D:\projects\Div\ai-existence-check\data\datasets\Photos_downloaded_by_AirDroid_2\1 dollor"),
     Path(r"D:\projects\Div\ai-existence-check\data\datasets\Photos_downloaded_by_AirDroid_2\20dollar"),
     Path(r"D:\projects\Div\ai-existence-check\data\datasets\Photos_downloaded_by_AirDroid_2\9v battery"),
@@ -101,9 +110,16 @@ CLEAN_IMAGE_FOLDERS: list[Path] = [
     Path(r"D:\projects\Div\ai-existence-check\data\datasets\Photos_downloaded_by_AirDroid_2\wallet_1"),
     Path(r"D:\projects\Div\ai-existence-check\data\datasets\Photos_downloaded_by_AirDroid_2\wallet_2"),
 ]
-MOIRE_IMAGE_FOLDERS: list[Path] = [
+
+CLEAN_IMAGE_FOLDERS_TEST: list[Path] = [
+    Path(r"D:\projects\Spatial-Moire-Effect-Detection\datasets\LCDMoire\my_dataset_final\test\gt"),
+]
+
+MOIRE_IMAGE_FOLDERS_TRAIN: list[Path] = [
     REPO_ROOT / "datasets" / "LCDMoire" / "my_dataset_final" / "train" / "moire",
-    REPO_ROOT / "datasets" / "LCDMoire" / "my_dataset_final" / "test" / "moire",
+]
+
+MOIRE_IMAGE_FOLDERS_VAL: list[Path] = [
     Path(r"D:\projects\Div\ai-existence-check\data\datasets\Photos_downloaded_by_AirDroid_2\flat 1 d"),
     Path(r"D:\projects\Div\ai-existence-check\data\datasets\Photos_downloaded_by_AirDroid_2\flat 1 dollar"),
     Path(r"D:\projects\Div\ai-existence-check\data\datasets\Photos_downloaded_by_AirDroid_2\flat 120 w 2"),
@@ -208,23 +224,20 @@ MOIRE_IMAGE_FOLDERS: list[Path] = [
     Path(r"D:\projects\Div\ai-existence-check\data\datasets\Photos_downloaded_by_AirDroid_2\flat watch 9"),
 ]
 
-# --- Split settings (per-class units) ---------------------------------------------
-# A pool folder holding at most FOLDER_UNIT_MAX_IMAGES images is one indivisible
-# split unit; a larger folder contributes one unit per image, and images sharing
-# a filename stem within one stream merge into a single unit (build_split_units
-# in baseline/data.py).
-FOLDER_UNIT_MAX_IMAGES: int = 32
-# The three fractions must lie in [0, 1] and sum to 1.0. Each class stream's
-# units are cut independently: train and val unit counts are rounded from the
-# fractions, test receives the remainder, so every unit lands in exactly one
-# split. The cut is drawn by split_train_val_test with the training seed.
-TRAIN_FRACTION: float = 0.8
-VAL_FRACTION: float = 0.1
-TEST_FRACTION: float = 0.1
+MOIRE_IMAGE_FOLDERS_TEST: list[Path] = [
+    REPO_ROOT / "datasets" / "LCDMoire" / "my_dataset_final" / "test" / "moire",
+]
+
+# Combined per-class pools (train + val + test, in that order) for consumers
+# that address a class's folders positionally: DEFAULT_SOURCE_DIR below and
+# the augmentation preview's scene draw use the first entry — the first train
+# folder of each class.
+CLEAN_IMAGE_FOLDERS: list[Path] = CLEAN_IMAGE_FOLDERS_TRAIN + CLEAN_IMAGE_FOLDERS_VAL + CLEAN_IMAGE_FOLDERS_TEST
+MOIRE_IMAGE_FOLDERS: list[Path] = MOIRE_IMAGE_FOLDERS_TRAIN + MOIRE_IMAGE_FOLDERS_VAL + MOIRE_IMAGE_FOLDERS_TEST
 
 # Offline sample synthesis (generate_moire_samples.py) consumes clean images
-# only; it defaults to the first clean pool.
-DEFAULT_SOURCE_DIR: Path = CLEAN_IMAGE_FOLDERS[0]
+# only; it defaults to the first clean train folder.
+DEFAULT_SOURCE_DIR: Path = CLEAN_IMAGE_FOLDERS_TRAIN[0]
 
 # --- Class labels -----------------------------------------------------------------
 MOIRE_LABEL: int = 1
@@ -289,6 +302,20 @@ EVAL_NUM_WORKERS: int = 4
 EVAL_SHUFFLE: bool = False
 CLASSIFICATION_THRESHOLD: float = 0.5
 
+# --- Cross-dataset evaluation (UHDM) -----------------------------------------------------------------
+# Foreign-dataset evaluation of a trained checkpoint (evaluate_uhdm.py). UHDM
+# ships paired moire / gt (clean) image folders per split; a sample's label
+# comes from its folder alone and the UHDM pools are never part of
+# CLEAN_IMAGE_FOLDERS / MOIRE_IMAGE_FOLDERS, so an evaluation here is strictly
+# out-of-distribution. Output filenames are templated per split so train and
+# test evaluations coexist in one directory.
+UHDM_ROOT: Path = REPO_ROOT / "datasets" / "UHDM"
+UHDM_SPLITS: tuple[str, ...] = ("test", "train")
+UHDM_DEFAULT_SPLIT: str = "test"
+UHDM_EVAL_OUTPUT_DIR: Path = REPO_ROOT / "results" / "uhdm_eval"
+UHDM_EVAL_METRICS_FILENAME_TEMPLATE: str = "uhdm_{split}_metrics.json"
+UHDM_EVAL_CONFUSION_MATRIX_FILENAME_TEMPLATE: str = "uhdm_{split}_confusion_matrix.png"
+
 # --- Sample-generation defaults ---------------------------------------------------------------------
 NUM_SAMPLE_IMAGES: int = 4
 NUM_VARIANTS: int = 1
@@ -303,7 +330,7 @@ MOIRE_SAMPLE_FILENAME_TEMPLATE: str = "moire_{type_name}__{source_stem}_v{varian
 # --- Train-augmentation preview defaults (preview_train_augmentation.py) -------------------
 # The preview script runs the training augmentation class (augmented_moire_dataset,
 # transform=None) over a few clean and real moire images drawn from the first
-# folder of each class pool for several passes and saves every input and
+# folder of each class's train list for several passes and saves every input and
 # output JPEG plus an HTML gallery and a JSON manifest into its own output folder
 # for offline analysis.
 AUGMENTATION_PREVIEW_OUTPUT_DIR: Path = SAMPLES_OUTPUT_DIR / "augmentation_preview"
@@ -322,7 +349,6 @@ AUGMENTATION_PREVIEW_OUTPUT_FILENAME_TEMPLATE: str = "output__{kind}__{stem}__p{
 # --- Output filenames -----------------------------------------------------------------------------------
 BEST_MODEL_FILENAME: str = "best_model.pt"
 HISTORY_FILENAME: str = "history.json"
-SPLIT_MANIFEST_FILENAME: str = "split_manifest.json"
 TRAINING_CURVES_FILENAME: str = "training_curves.png"
 TEST_METRICS_FILENAME: str = "test_metrics.json"
 CONFUSION_MATRIX_FILENAME: str = "confusion_matrix.png"

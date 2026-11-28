@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import json
-import math
-import random
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -12,7 +9,9 @@ from torch.utils.data import Dataset, Sampler
 from torchvision import transforms
 
 from config import (
-    CLEAN_IMAGE_FOLDERS,
+    CLEAN_IMAGE_FOLDERS_TEST,
+    CLEAN_IMAGE_FOLDERS_TRAIN,
+    CLEAN_IMAGE_FOLDERS_VAL,
     CLEAN_LABEL,
     COLOR_JITTER_BRIGHTNESS,
     COLOR_JITTER_CONTRAST,
@@ -21,20 +20,16 @@ from config import (
     DEFAULT_SEED,
     EVAL_CROP_SIZE,
     EVAL_RESIZE_SIZE,
-    FOLDER_UNIT_MAX_IMAGES,
     IMAGENET_MEAN,
     IMAGENET_STD,
     IMAGE_COLOR_MODE,
     IMAGE_EXTENSIONS,
-    JSON_ENCODING,
-    JSON_INDENT,
-    MOIRE_IMAGE_FOLDERS,
+    MOIRE_IMAGE_FOLDERS_TEST,
+    MOIRE_IMAGE_FOLDERS_TRAIN,
+    MOIRE_IMAGE_FOLDERS_VAL,
     MOIRE_LABEL,
     RANDOM_RESIZED_CROP_SCALE,
-    TEST_FRACTION,
     TRAIN_CROP_SIZE,
-    TRAIN_FRACTION,
-    VAL_FRACTION,
 )
 
 # Class-label constants are re-exported from config for backward compatibility
@@ -65,126 +60,53 @@ def collect_class_samples(folders: list[Path], label: int) -> list[dict[str, Any
     return samples
 
 
-def build_split_units(folders: list[Path], label: int) -> list[list[dict[str, Any]]]:
-    """Split units of one class stream, each unit a list of {"path", "label"} dicts.
-
-    A folder holding at most FOLDER_UNIT_MAX_IMAGES images is one atomic unit.
-    A larger folder contributes one unit per image, and images sharing a
-    filename stem across the larger folders of one stream merge into a single
-    unit, so captures of the same scene cannot straddle splits. Units keep
-    pool order (folder order, then filename order).
-    """
-    samples = collect_class_samples(folders=folders, label=label)
-    by_folder: dict[Path, list[dict[str, Any]]] = {}
-    for sample in samples:
-        by_folder.setdefault(Path(sample["path"]).parent, []).append(sample)
-    units: list[list[dict[str, Any]]] = []
-    stem_units: dict[str, list[dict[str, Any]]] = {}
-    for folder in folders:
-        folder_samples = by_folder.get(folder, [])
-        if not folder_samples:
-            continue
-        if len(folder_samples) <= FOLDER_UNIT_MAX_IMAGES:
-            units.append(folder_samples)
-            continue
-        for sample in folder_samples:
-            stem = Path(sample["path"]).stem
-            unit = stem_units.get(stem)
-            if unit is None:
-                unit = []
-                stem_units[stem] = unit
-                units.append(unit)
-            unit.append(sample)
-    return units
-
-
-def validate_split_fractions(train_fraction: float, val_fraction: float, test_fraction: float) -> None:
-    """Raise ValueError unless all three split fractions lie in [0, 1] and sum to 1.0."""
-    fractions = (train_fraction, val_fraction, test_fraction)
-    if any(fraction < 0.0 or fraction > 1.0 for fraction in fractions):
-        raise ValueError(f"split fractions must lie in [0, 1]: {fractions}")
-    if not math.isclose(sum(fractions), 1.0):
-        raise ValueError(f"split fractions must sum to 1.0: {fractions}")
-
-
-def split_train_val_test(
-    clean_folders: list[Path] | None = None,
-    moire_folders: list[Path] | None = None,
-    train_fraction: float = TRAIN_FRACTION,
-    val_fraction: float = VAL_FRACTION,
-    test_fraction: float = TEST_FRACTION,
-    seed: int = DEFAULT_SEED,
+def split_datasets(
+    clean_train_folders: list[Path] | None = None,
+    moire_train_folders: list[Path] | None = None,
+    clean_val_folders: list[Path] | None = None,
+    moire_val_folders: list[Path] | None = None,
+    clean_test_folders: list[Path] | None = None,
+    moire_test_folders: list[Path] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-    """Split each class stream's units independently into train / val / test.
+    """Collect the train / val / test splits from the six per-class folder lists.
 
-    The clean and moire pools are collected and grouped into split units
-    separately (collect_class_samples / build_split_units), then shuffled with
-    two independent shuffles — random.Random(seed) for the clean stream,
-    random.Random(seed + 1) for the moire stream. Each stream is cut by the
-    fractions: train and val unit counts are rounded, test receives the
-    remainder. Every split's sample list is its clean units' samples followed
-    by its moire units' samples; there is no pairing between the streams and
-    a sample's label comes from its pool alone.
+    Each argument defaults to its config counterpart. A split's sample list is
+    the clean list's samples followed by the moire list's samples, both in
+    (folder, filename) order. Validation: every list must be non-empty; no
+    folder may appear in two of a class's three lists, so a source folder
+    never feeds two splits; collect_class_samples raises for missing or empty
+    folders. There is no pairing between the classes and a sample's label
+    comes from its list alone.
     """
-    validate_split_fractions(train_fraction=train_fraction, val_fraction=val_fraction, test_fraction=test_fraction)
-    clean_pool = CLEAN_IMAGE_FOLDERS if clean_folders is None else clean_folders
-    moire_pool = MOIRE_IMAGE_FOLDERS if moire_folders is None else moire_folders
-    clean_units = build_split_units(folders=clean_pool, label=CLEAN_LABEL)
-    moire_units = build_split_units(folders=moire_pool, label=MOIRE_LABEL)
-    random.Random(seed).shuffle(clean_units)
-    random.Random(seed + 1).shuffle(moire_units)
-    train_samples: list[dict[str, Any]] = []
-    val_samples: list[dict[str, Any]] = []
-    test_samples: list[dict[str, Any]] = []
-    for units in (clean_units, moire_units):
-        train_count = round(len(units) * train_fraction)
-        val_count = round(len(units) * val_fraction)
-        for split_samples, unit_slice in (
-            (train_samples, units[:train_count]),
-            (val_samples, units[train_count : train_count + val_count]),
-            (test_samples, units[train_count + val_count :]),
-        ):
-            split_samples.extend(sample for unit in unit_slice for sample in unit)
+    clean_train = CLEAN_IMAGE_FOLDERS_TRAIN if clean_train_folders is None else clean_train_folders
+    moire_train = MOIRE_IMAGE_FOLDERS_TRAIN if moire_train_folders is None else moire_train_folders
+    clean_val = CLEAN_IMAGE_FOLDERS_VAL if clean_val_folders is None else clean_val_folders
+    moire_val = MOIRE_IMAGE_FOLDERS_VAL if moire_val_folders is None else moire_val_folders
+    clean_test = CLEAN_IMAGE_FOLDERS_TEST if clean_test_folders is None else clean_test_folders
+    moire_test = MOIRE_IMAGE_FOLDERS_TEST if moire_test_folders is None else moire_test_folders
+    for class_name, lists in (
+        ("clean", (clean_train, clean_val, clean_test)),
+        ("moire", (moire_train, moire_val, moire_test)),
+    ):
+        for split_name, folders in zip(("train", "val", "test"), lists, strict=True):
+            if not folders:
+                raise ValueError(f"the {class_name} {split_name} image folder list must not be empty")
+        seen: set[Path] = set()
+        for folders in lists:
+            for folder in folders:
+                if folder in seen:
+                    raise ValueError(
+                        f"{class_name} image folder {folder} is listed for more than one split; "
+                        "a source folder may feed at most one split"
+                    )
+                seen.add(folder)
+    train_samples = collect_class_samples(folders=clean_train, label=CLEAN_LABEL)
+    train_samples += collect_class_samples(folders=moire_train, label=MOIRE_LABEL)
+    val_samples = collect_class_samples(folders=clean_val, label=CLEAN_LABEL)
+    val_samples += collect_class_samples(folders=moire_val, label=MOIRE_LABEL)
+    test_samples = collect_class_samples(folders=clean_test, label=CLEAN_LABEL)
+    test_samples += collect_class_samples(folders=moire_test, label=MOIRE_LABEL)
     return train_samples, val_samples, test_samples
-
-
-SPLIT_MANIFEST_ALGORITHM: str = "per_class_units_v1"
-
-
-def save_split_manifest(
-    train_samples: list[dict[str, Any]],
-    val_samples: list[dict[str, Any]],
-    test_samples: list[dict[str, Any]],
-    path: Path,
-    seed: int = DEFAULT_SEED,
-    train_fraction: float = TRAIN_FRACTION,
-    val_fraction: float = VAL_FRACTION,
-    test_fraction: float = TEST_FRACTION,
-) -> None:
-    """Persist the exact split (algorithm, seed, fractions and all three sample lists) as JSON."""
-    manifest = {
-        "algorithm": SPLIT_MANIFEST_ALGORITHM,
-        "seed": seed,
-        "train_fraction": train_fraction,
-        "val_fraction": val_fraction,
-        "test_fraction": test_fraction,
-        "folder_unit_max_images": FOLDER_UNIT_MAX_IMAGES,
-        "train_count": len(train_samples),
-        "val_count": len(val_samples),
-        "test_count": len(test_samples),
-        "train": train_samples,
-        "val": val_samples,
-        "test": test_samples,
-    }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(data=json.dumps(manifest, indent=JSON_INDENT), encoding=JSON_ENCODING)
-
-
-def load_split_manifest(path: Path) -> dict[str, Any] | None:
-    """Read a saved split manifest, or None when path does not exist."""
-    if not path.is_file():
-        return None
-    return json.loads(path.read_text(encoding=JSON_ENCODING))
 
 
 class moire_dataset(Dataset):

@@ -108,17 +108,20 @@ pip install -r requirements.txt
 ## Usage
 
 Run the scripts from the repository root inside the activated environment. The
-dataset source folders and the 0.8 / 0.1 / 0.1 train / val / test split
-fractions come from `src/config.py` (see [Dataset and splits](#dataset-and-splits)).
+dataset source folder lists — including the per-class train / val / test
+assignments — come from `src/config.py` (see [Dataset and splits](#dataset-and-splits)).
 
 ```bash
 # Train the ResNet-18 baseline (writes best_model.pt, history.json,
-# split_manifest.json, training_curves.png into results/baseline_resnet18)
+# training_curves.png into results/baseline_resnet18)
 python src/train_baseline.py
 
-# Evaluate the held-out test split (re-derives the exact split
-# from split_manifest.json next to best_model.pt)
+# Evaluate the held-out test split (the test folder lists from src/config.py)
 python src/evaluate_baseline.py
+
+# Cross-dataset check: evaluate the trained checkpoint on the
+# foreign UHDM test split (writes results/uhdm_eval)
+python src/evaluate_uhdm.py
 
 # Generate offline synthetic moiré samples from clean sources
 python src/generate_moire_samples.py
@@ -127,32 +130,32 @@ python src/generate_moire_samples.py
 python src/preview_train_augmentation.py
 ```
 
-Useful flags: `--epochs`, `--batch-size`, `--seed` (train — also fixes the
-split and is recorded in the manifest), `--moire-augment-prob`,
-`--group-augment` (train), `--threshold`, `--seed` (evaluate — overrides the
-manifest seed), `--sampling`, `--groups` (sample generation), `--num-scenes`,
-`--passes` (preview).
+Useful flags: `--epochs`, `--batch-size`, `--seed` (train — fixes the
+augmentation and DataLoader draws for reproducibility), `--moire-augment-prob`,
+`--group-augment` (train), `--threshold` (evaluate), `--split`, `--model-dir`
+(evaluate_uhdm — foreign-dataset evaluation of a trained checkpoint),
+`--sampling`, `--groups` (sample generation), `--num-scenes`, `--passes`
+(preview).
 
 ## Dataset and splits
 
 The baseline consumes two **independent per-class folder pools** configured in
-`src/config.py` — `CLEAN_IMAGE_FOLDERS` (65 folders, 3583 clean / gt images)
-and `MOIRE_IMAGE_FOLDERS` (104 folders, 3545 real-moire images) — with no
-pairing between them. `split_train_val_test` groups each class into split
-units (small folders atomic, shared scene stems merged), shuffles the two unit
-streams separately with `seed` / `seed + 1` and cuts each 80 / 10 / 10 into
-train / val / test — 5676 / 688 / 764 samples (train 2844 clean + 2832 moire:
-near 50 / 50 by construction, exactly 50 / 50 per train batch via balanced
-batches). The split is recorded in `split_manifest.json` (algorithm marker
-`per_class_units_v1`) next to the trained model; evaluation re-derives the
-test portion from it and rejects a manifest written by a different split
-algorithm. Full details: [`docs/dataset.md`](docs/dataset.md).
+`src/config.py` — `CLEAN_IMAGE_FOLDERS*` (65 folders, 3583 clean / gt images)
+and `MOIRE_IMAGE_FOLDERS*` (104 folders, 3545 real-moire images) — with no
+pairing between them. Six explicit folder lists
+(`*_IMAGE_FOLDERS_{TRAIN,VAL,TEST}`) assign every source folder to its split:
+`split_datasets` collects each list in (folder, filename) order, giving
+**6000 / 808 / 320 samples** — train 3000 clean + 3000 moire (exactly 50 / 50
+by construction, and 50 / 50 in every train batch via balanced batches), val
+423 clean + 385 moire, test 160 clean + 160 moire. The split is the folder
+assignment alone — deterministic, with no seed, manifest or fractions. Full
+details: [`docs/dataset.md`](docs/dataset.md).
 
 ## Documentation
 
 Detailed design documents live in [`docs/`](docs/):
 
-- [`docs/dataset.md`](docs/dataset.md) — the dataset source pools and the per-class train / val / test split: the independent clean/moire folder pools, split units, the per-class seeded unit shuffles, the 0.8/0.1/0.1 fractions, the split manifest and how training / evaluation consume it.
+- [`docs/dataset.md`](docs/dataset.md) — the dataset source folder pools and the explicit folder-list train / val / test split: the independent clean/moire pools, the six per-class-split folder lists, how training / evaluation consume them, and the tuning guide.
 - [`docs/augmentation.md`](docs/augmentation.md) — the label-preserving, class-aware augmentation pipeline: weighted type sampling and procedural moiré synthesis that only ever adds a pattern to moire-class fetches, plus the six seeded capture-style augmentation groups that corrupt pixels without ever moving the clean/moire label, with flow diagrams, the `apply_group_augmentation` algorithm, CLI flags, and a tuning guide.
 - [`docs/moire_types.md`](docs/moire_types.md) — the canonical catalogue of the nine moiré effect types: physical causes, visual signatures, prevalence weights, and their mapping onto the synthesis generators.
 

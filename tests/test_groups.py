@@ -175,49 +175,49 @@ def check_groups_compose_after_moire_synthesis() -> None:
 
 def check_augmented_dataset_applies_groups() -> None:
     samples = build_samples(kind="gt", label=0)
-    plain = augmented_moire_dataset(samples=samples, transform=None, augment_prob=1.0, seed=42)
-    grouped = augmented_moire_dataset(samples=samples, transform=None, augment_prob=1.0, seed=42, group_augment=True)
-    repeat = augmented_moire_dataset(samples=samples, transform=None, augment_prob=1.0, seed=42, group_augment=True)
+    plain = augmented_moire_dataset(samples=samples, transform=None, moire_augment_prob=1.0, seed=42)
+    grouped = augmented_moire_dataset(samples=samples, transform=None, moire_augment_prob=1.0, seed=42, group_augment=True)
+    repeat = augmented_moire_dataset(samples=samples, transform=None, moire_augment_prob=1.0, seed=42, group_augment=True)
     for index in range(len(grouped)):
         plain_image, plain_label = plain[index]
         grouped_image, grouped_label = grouped[index]
         repeat_image, _repeat_label = repeat[index]
-        assert (plain_label, grouped_label) == (1, 1), f"image {index} must be relabeled as moire in both modes"
-        assert np.array_equal(to_array(grouped_image), to_array(repeat_image)), f"image {index} must be reproducible"
+        assert (plain_label, grouped_label) == (0, 0), f"image {index} must keep the clean label in both modes"
+        assert np.array_equal(to_array(plain_image), load_array(Path(samples[index]["path"]))), (
+            f"image {index} must pass through unchanged at moire_augment_prob=1"
+        )
         assert not np.array_equal(to_array(grouped_image), to_array(plain_image)), (
             f"image {index}: group augmentation must change pixels relative to plain moire augmentation"
         )
-        assert not np.array_equal(to_array(grouped_image), load_array(Path(samples[index]["path"]))), (
-            f"image {index} must differ from the clean source"
-        )
-    print(f"ok: {len(grouped)} clean images get reproducible group-augmented moire")
+        assert np.array_equal(to_array(grouped_image), to_array(repeat_image)), f"image {index} must be reproducible"
+    print(f"ok: {len(grouped)} clean images get reproducible group augmentation and keep label 0 even at moire_augment_prob=1")
 
 
 def check_real_moire_images_receive_group_augmentation() -> None:
     samples = build_samples(kind="moire", label=1)
-    plain = augmented_moire_dataset(samples=samples, transform=None, augment_prob=1.0, seed=42)
-    grouped = augmented_moire_dataset(samples=samples, transform=None, augment_prob=1.0, group_augment=True, seed=42)
-    repeat = augmented_moire_dataset(samples=samples, transform=None, augment_prob=1.0, group_augment=True, seed=42)
+    plain = augmented_moire_dataset(samples=samples, transform=None, moire_augment_prob=0.0, seed=42)
+    grouped = augmented_moire_dataset(samples=samples, transform=None, moire_augment_prob=1.0, group_augment=True, seed=42)
+    repeat = augmented_moire_dataset(samples=samples, transform=None, moire_augment_prob=1.0, group_augment=True, seed=42)
     for index in range(len(grouped)):
         plain_image, plain_label = plain[index]
         grouped_image, grouped_label = grouped[index]
         repeat_image, _repeat_label = repeat[index]
         assert (plain_label, grouped_label) == (1, 1), f"real moire image {index} must keep the moire label"
         assert np.array_equal(to_array(plain_image), load_array(Path(samples[index]["path"]))), (
-            f"real moire image {index} must stay pixel-identical when groups are disabled"
+            f"real moire image {index} must stay pixel-identical when augmentation is disabled"
         )
         assert not np.array_equal(to_array(grouped_image), to_array(plain_image)), (
-            f"real moire image {index} must be group-augmented when groups are enabled"
+            f"real moire image {index} must gain a pattern plus groups at moire_augment_prob=1"
         )
         assert np.array_equal(to_array(grouped_image), to_array(repeat_image)), (
             f"real moire image {index} must be reproducible across equal seeds"
         )
-    print(f"ok: {len(grouped)} real moire images receive reproducible group augmentation and keep label 1")
+    print(f"ok: {len(grouped)} real moire images receive reproducible pattern+group augmentation and keep label 1")
 
 
 def check_real_moire_group_path_matches_pipeline() -> None:
     samples = build_samples(kind="moire", label=1)
-    dataset = augmented_moire_dataset(samples=samples, transform=None, augment_prob=1.0, group_augment=True, seed=42)
+    dataset = augmented_moire_dataset(samples=samples, transform=None, moire_augment_prob=0.0, group_augment=True, seed=42)
     rng = np.random.default_rng(seed=42)
     for index in range(len(dataset)):
         image, label = dataset[index]
@@ -232,9 +232,9 @@ def check_real_moire_group_path_matches_pipeline() -> None:
 
 def check_clean_images_receive_group_augmentation() -> None:
     samples = build_samples(kind="gt", label=0)
-    plain = augmented_moire_dataset(samples=samples, transform=None, augment_prob=0.0, seed=42)
-    grouped = augmented_moire_dataset(samples=samples, transform=None, augment_prob=0.0, group_augment=True, seed=42)
-    repeat = augmented_moire_dataset(samples=samples, transform=None, augment_prob=0.0, group_augment=True, seed=42)
+    plain = augmented_moire_dataset(samples=samples, transform=None, moire_augment_prob=0.0, seed=42)
+    grouped = augmented_moire_dataset(samples=samples, transform=None, moire_augment_prob=0.0, group_augment=True, seed=42)
+    repeat = augmented_moire_dataset(samples=samples, transform=None, moire_augment_prob=0.0, group_augment=True, seed=42)
     for index in range(len(grouped)):
         plain_image, plain_label = plain[index]
         grouped_image, grouped_label = grouped[index]
@@ -254,7 +254,7 @@ def check_clean_images_receive_group_augmentation() -> None:
 
 def check_clean_group_path_matches_pipeline() -> None:
     samples = build_samples(kind="gt", label=0)
-    dataset = augmented_moire_dataset(samples=samples, transform=None, augment_prob=0.0, group_augment=True, seed=42)
+    dataset = augmented_moire_dataset(samples=samples, transform=None, moire_augment_prob=0.0, group_augment=True, seed=42)
     rng = np.random.default_rng(seed=42)
     for index in range(len(dataset)):
         image, label = dataset[index]
@@ -268,16 +268,16 @@ def check_clean_group_path_matches_pipeline() -> None:
 
 
 def check_transform_pipeline_output_with_groups() -> None:
-    samples = build_samples(kind="gt", label=0)
+    samples = build_samples(kind="moire", label=1)
     dataset = augmented_moire_dataset(
         samples=samples,
         transform=build_train_transform(),
-        augment_prob=1.0,
+        moire_augment_prob=1.0,
         seed=7,
         group_augment=True,
     )
     image, label = dataset[0]
-    assert label == 1, "group-augmented clean image must carry the moire label after the train transform"
+    assert label == 1, "group-augmented real moire image must keep the moire label after the train transform"
     assert isinstance(image, torch.Tensor), "train transform must return a tensor"
     assert tuple(image.shape) == (3, TRAIN_CROP_SIZE, TRAIN_CROP_SIZE), f"unexpected tensor shape {tuple(image.shape)}"
     print(f"ok: group-augmented images flow through the train transform as (3, {TRAIN_CROP_SIZE}, {TRAIN_CROP_SIZE}) tensors")
@@ -286,8 +286,8 @@ def check_transform_pipeline_output_with_groups() -> None:
 def check_dataset_rejects_invalid_group_settings() -> None:
     samples = build_samples(kind="gt", label=0)
     attempts = (
-        lambda: augmented_moire_dataset(samples=samples, transform=None, augment_prob=1.0, group_names=["rainbow"]),
-        lambda: augmented_moire_dataset(samples=samples, transform=None, augment_prob=1.0, num_groups_range=(3, 1)),
+        lambda: augmented_moire_dataset(samples=samples, transform=None, moire_augment_prob=1.0, group_names=["rainbow"]),
+        lambda: augmented_moire_dataset(samples=samples, transform=None, moire_augment_prob=1.0, num_groups_range=(3, 1)),
     )
     for attempt in attempts:
         try:

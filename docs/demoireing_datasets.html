@@ -111,13 +111,24 @@
         <td><span class="pill synth">synthetic</span></td>
         <td>Image demoiréing (sRGB pairs)</td>
         <td><span class="verified">11,000 pairs</span></td>
-        <td><span class="na">N/A</span> <span class="muted">(512 × 512 commonly reported)</span></td>
-        <td><span class="na">N/A</span> <span class="muted">(challenge-phase split)</span></td>
-        <td>CFA-based screen-capture simulation</td>
-        <td>Track-1 challenge data; resolution &amp; split not independently
-            re-verified (Papers with Code defunct)</td>
-        <td><span class="na">N/A</span></td>
-        <td><span class="na">No</span></td>
+        <td><span class="verified">128 × 128</span> <span class="muted">(challenge report
+            §2.1; the previously recorded "512 × 512" figure is wrong)</span></td>
+        <td><span class="verified">10,000 / 500 / 500</span></td>
+        <td>Synthetic: clean crops from DeepJoint, HDR+ and DIV8K, degraded by a
+            remosaicing → demosaicing round-trip (moiré appears in high-frequency
+            clothing / building textures)</td>
+        <td>Challenge data no longer distributed: CodaLab competition 22223 offers
+            nothing after registration (confirmed by a challenge participant and the
+            C3Net author in
+            <a href="https://github.com/bmycheez/C3Net/issues/2">C3Net issue #2</a>);
+            no mirrors found on Hugging Face, Kaggle, GitHub or Academic Torrents
+            (searched 2026-11-27). Regenerating from the source datasets is the only
+            remaining route.</td>
+        <td><a href="https://arxiv.org/abs/2005.03155">arXiv</a> ·
+            <a href="https://competitions.codalab.org/competitions/22223">CodaLab</a></td>
+        <td><span class="na">No — unobtainable</span><br>
+            <span class="muted">challenge data retired, no public mirror
+            (verified 2026-11-27)</span></td>
       </tr>
 
       <tr>
@@ -134,7 +145,11 @@
         <td>1080p confirmed via UHDM paper's dataset comparison ("highest resolution
             in current public demoiréing datasets"); exact count / split unverified
             (data distributed via Baidu / Google Drive)</td>
-        <td><a href="https://doi.org/10.1007/978-3-030-58542-6_43">DOI</a></td>
+        <td><a href="https://doi.org/10.1007/978-3-030-58542-6_43">DOI</a> ·
+            <a href="https://github.com/PKU-IMRE/FHDe2Net">code</a> ·
+            <a href="https://drive.google.com/drive/folders/1IJSeBXepXFpNAvL5OyZ2Y1yu4KPvDxN5">Google Drive</a> ·
+            <a href="https://pan.baidu.com/s/19LTN7unSBAftSpNVs8x9ZQ">Baidu</a>
+            <span class="muted">(code&nbsp;jf2d)</span></td>
         <td><span class="na">No</span></td>
       </tr>
 
@@ -153,7 +168,9 @@
         <td>First real 4K demoiréing dataset; all stats confirmed from the
             paper and the official project page</td>
         <td><a href="https://arxiv.org/abs/2207.09935">arXiv</a> ·
-            <a href="https://xinyu-andy.github.io/uhdm-page/">project</a></td>
+            <a href="https://xinyu-andy.github.io/uhdm-page/">project</a> ·
+            <a href="https://drive.google.com/drive/folders/1DyA84UqM7zf3CeoEBNmTi_dJ649x2e7e">Google Drive</a> ·
+            <a href="https://github.com/CVMI-Lab/UHDM">code</a></td>
         <td><span class="na">No</span></td>
       </tr>
 
@@ -275,6 +292,15 @@
             Training.zip 4.27&nbsp;GB plus two validation zips; login required).
             The local copy in <code>datasets/LCDMoire/</code> is a login-free
             community subset (3,160 JPEG pairs, 1024 × 1024).</li>
+        <li>UHDM / FHDMi: downloaded 2026-11-27 from the authors' official
+            Google Drive folders (login-free, via gdown). Google Drive enforces
+            per-file anonymous download quotas: UHDM's monolithic
+            <code>train.tar.gz</code> and <code>test_origin.tar.gz</code> were
+            quota-blocked, so the train set was fetched as the 18
+            <code>train_splitNN.tar.gz</code> parts from the same official
+            folder; FHDMi ships as split chunks (~1.15&nbsp;GB each) of one
+            tar.gz per group and blocked chunks are retried until the quota
+            resets (~24&nbsp;h window).</li>
         <li>Sources: arXiv native HTML, ar5iv, OpenAlex, DBLP (blocked), official
             project pages, GitHub issue threads (LCDMoire mirror discovery).
             Dataset binaries are not tracked in git (see .gitignore).</li>
@@ -285,7 +311,8 @@
   <footer>
     Static reference page — no JavaScript required. Compiled 2026-11;
     LCDMoire download status updated 2026-11 (partial local copy:
-    datasets/LCDMoire/).
+    datasets/LCDMoire/); UHDM + FHDMi download session 2026-11-27
+    (official Google Drive folders; CFAMoire verified unobtainable).
   </footer>
 
 </div>

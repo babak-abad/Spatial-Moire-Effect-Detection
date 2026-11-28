@@ -95,7 +95,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--num-workers", type=int, default=TRAIN_NUM_WORKERS)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
-    parser.add_argument("--moire-augment-prob", type=float, default=MOIRE_AUGMENT_PROB)
+    parser.add_argument(
+        "--moire-augment-prob",
+        type=float,
+        default=MOIRE_AUGMENT_PROB,
+        help=(
+            "probability that a moire-class train fetch receives one additional synthesized moire "
+            "pattern; clean fetches never become moire and labels never change"
+        ),
+    )
     parser.add_argument(
         "--moire-augment-types",
         nargs="+",
@@ -106,8 +114,8 @@ def parse_args() -> argparse.Namespace:
         "--group-augment",
         action="store_true",
         help=(
-            "additionally corrupt every image (moire-labeled and clean alike) with random "
-            "capture-style augmentation groups; labels follow the moire draw alone"
+            "additionally corrupt every train image (moire-labeled and clean alike) with random "
+            "capture-style augmentation groups; labels never change"
         ),
     )
     parser.add_argument(
@@ -123,7 +131,7 @@ def parse_args() -> argparse.Namespace:
         type=int,
         metavar=("LOW", "HIGH"),
         default=None,
-        help="inclusive range of augmentation groups applied per augmented image",
+        help="inclusive range of augmentation groups applied per train image",
     )
     return parser.parse_args()
 
@@ -182,7 +190,7 @@ def main() -> None:
         train_set = augmented_moire_dataset(
             samples=train_samples,
             transform=build_train_transform(),
-            augment_prob=args.moire_augment_prob,
+            moire_augment_prob=args.moire_augment_prob,
             type_names=train_type_names,
             seed=args.seed,
             group_augment=args.group_augment,
@@ -191,32 +199,30 @@ def main() -> None:
             balanced=args.balance_batches,
         )
         if args.moire_augment_prob > 0.0:
-            expected_moire_share = (
-                train_positives + args.moire_augment_prob * (len(train_samples) - train_positives)
-            ) / len(train_samples)
+            expected_moire_share = train_positives / len(train_samples)
             type_mix = ", ".join(
                 f"{name} {probability:.0%}"
                 for name, probability in type_probabilities(type_names=train_type_names).items()
             )
             if args.balance_batches:
                 print(
-                    f"moire augmentation: a {args.moire_augment_prob:.0%} share of the moire half of every balanced "
-                    f"train batch is synthesized on the fly from clean images via weighted moire type draw ({type_mix}); "
-                    "the remaining moire items are real moire images",
+                    f"moire augmentation: a {args.moire_augment_prob:.0%} share of the moire fetches in every balanced "
+                    f"train batch receives one additional synthesized moire pattern via weighted moire type draw ({type_mix}); "
+                    "the moire half of every batch always comes from real moire images",
                     flush=True,
                 )
             else:
                 print(
-                    f"moire augmentation: clean train images augmented on the fly with probability {args.moire_augment_prob} "
-                    f"via weighted moire type draw ({type_mix}) and relabeled as moire "
-                    f"(expected moire share ~{expected_moire_share:.0%})",
+                    f"moire augmentation: a {args.moire_augment_prob:.0%} share of the {train_positives} moire train "
+                    f"images receives one additional synthesized moire pattern via weighted moire type draw ({type_mix}); "
+                    f"clean images never become moire (expected moire share stays {expected_moire_share:.0%})",
                     flush=True,
                 )
         if args.group_augment:
             print(
                 f"group augmentation: every train image (moire-labeled and clean alike) receives "
                 f"{group_count_range[0]}-{group_count_range[1]} capture-style groups drawn from "
-                f"{', '.join(train_group_names)}; labels follow the moire draw",
+                f"{', '.join(train_group_names)}; labels never change",
                 flush=True,
             )
     elif args.balance_batches:

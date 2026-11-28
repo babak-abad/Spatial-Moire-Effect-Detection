@@ -16,6 +16,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from spatial_moire.baseline.data import (  # noqa: E402
+    SPLIT_MANIFEST_ALGORITHM,
     build_eval_transform,
     load_split_manifest,
     moire_dataset,
@@ -106,6 +107,11 @@ def main() -> None:
     print(f"loaded checkpoint from epoch {checkpoint['epoch']} (val F1 = {checkpoint['val_f1']:.4f})", flush=True)
 
     manifest = load_split_manifest(path=args.output_dir / SPLIT_MANIFEST_FILENAME)
+    if manifest is not None and manifest.get("algorithm") != SPLIT_MANIFEST_ALGORITHM:
+        raise ValueError(
+            f"{SPLIT_MANIFEST_FILENAME} was written by split algorithm {manifest.get('algorithm')!r}; "
+            f"this script only replays {SPLIT_MANIFEST_ALGORITHM!r} manifests — retrain to regenerate the split"
+        )
     split_seed, train_fraction, val_fraction, test_fraction, split_source = resolve_split_settings(
         manifest=manifest,
         seed_override=args.seed,

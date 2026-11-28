@@ -142,29 +142,36 @@ def check_augmented_dataset_draws_weighted_types() -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         sample_path = Path(temp_dir) / "sample.png"
         Image.fromarray(obj=source).save(fp=sample_path)
-        samples = [{"path": str(sample_path), "label": 0}]
-        dataset = augmented_moire_dataset(samples=samples, transform=None, augment_prob=1.0, seed=42)
+        samples = [{"path": str(sample_path), "label": 1}]
+        dataset = augmented_moire_dataset(samples=samples, transform=None, moire_augment_prob=1.0, seed=42)
         augmented_image, label = dataset[0]
-        assert label == 1, "augmented clean image must carry the moire label"
+        assert label == 1, "augmented moire image must keep the moire label"
         assert not np.array_equal(np.asarray(augmented_image, dtype=np.uint8), source), (
             "weighted type augmentation must modify the pixels"
+        )
+        clean_samples = [{"path": str(sample_path), "label": 0}]
+        clean = augmented_moire_dataset(samples=clean_samples, transform=None, moire_augment_prob=1.0, seed=42)
+        clean_image, clean_label = clean[0]
+        assert clean_label == 0, "clean sample must keep the clean label"
+        assert np.array_equal(np.asarray(clean_image, dtype=np.uint8), source), (
+            "clean samples must never receive moire synthesis, whatever moire_augment_prob is"
         )
         restricted = augmented_moire_dataset(
             samples=samples,
             transform=None,
-            augment_prob=1.0,
+            moire_augment_prob=1.0,
             type_names=["scanline"],
             seed=42,
         )
         restricted_image, restricted_label = restricted[0]
-        assert restricted_label == 1, "type-restricted augmentation must still label the image as moire"
+        assert restricted_label == 1, "type-restricted augmentation must keep the moire label"
         assert not np.array_equal(np.asarray(restricted_image, dtype=np.uint8), source), (
             "type-restricted augmentation must still modify the pixels"
         )
         try:
-            augmented_moire_dataset(samples=samples, transform=None, augment_prob=1.0, type_names=["rainbow"])
+            augmented_moire_dataset(samples=samples, transform=None, moire_augment_prob=1.0, type_names=["rainbow"])
         except ValueError:
-            print("ok: dataset draws weighted moire types, honors subsets and rejects unknown names")
+            print("ok: moire types are drawn only on the moire class, subsets are honored and unknown names rejected")
         else:
             raise AssertionError("augmented_moire_dataset must reject unknown type names")
 

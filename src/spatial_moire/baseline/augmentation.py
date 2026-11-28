@@ -1,4 +1,4 @@
-"""On-the-fly moire augmentation for clean images in the training dataset."""
+"""Class-aware, label-preserving on-the-fly augmentation for the training dataset."""
 
 from __future__ import annotations
 
@@ -17,37 +17,34 @@ from spatial_moire.synthesis.groups import apply_group_augmentation, normalized_
 
 
 class augmented_moire_dataset(moire_dataset):
-    """moire_dataset that turns a random share of clean images into moire.
+    """Label-preserving, class-aware training augmentation shared by both classes.
 
-    Each clean image is moire-augmented in memory with probability
-    augment_prob and then carries the moire label, so an augmented image can
-    never be returned as clean. The moire type of every augmentation is drawn
-    with possibility weight / total_weight from the selected types (all nine
-    registry types by default) and rendered by one of that type's mapped
-    synthesis generators. With group_augment=True every image is
-    additionally corrupted with a random subset of the capture-style
-    augmentation groups from spatial_moire.synthesis.groups while the label
-    keeps following the moire decision alone: moire-augmented clean images
-    after synthesis, and real moire images plus clean images that stay clean
-    straight from the label decision, since they skip moire synthesis but
-    enter the same group_augment branch. Source files are never modified.
+    Clean fetches (label 0) only ever receive the label-neutral capture-style
+    group augmentation (when group_augment=True) — moire synthesis is
+    structurally unreachable on the clean path, so a clean image can never
+    become moire inside the training pipeline. Moire fetches (label 1) may
+    gain, with probability moire_augment_prob, one additional moire pattern
+    drawn with possibility weight / total_weight from the selected types (all
+    nine registry types by default) and rendered by one of that type's mapped
+    synthesis generators, followed by the same group augmentation. The label
+    of a fetch always equals the label of its source sample. Source files are
+    never modified.
 
-    With balanced=True the dataset instead serves the interleaved virtual index
-    space of balanced_moire_dataset: even indices return a clean image with the
-    clean label (the moire draw never fires on them) and odd indices return a
-    moire image with the moire label — a real moire source passed through or,
-    with probability augment_prob, a clean source with forced moire synthesis.
-    augment_prob thereby becomes the share of the moire half that is
-    synthesized, and any batch of even size drawn from sequential or
-    balanced_shuffle_sampler order holds exactly half clean and half moire
-    items regardless of the source label distribution.
+    With balanced=True the dataset serves the interleaved virtual index space
+    of balanced_moire_dataset over the real class pools only: even indices
+    return a clean fetch (label 0), odd indices a moire fetch (label 1), both
+    cycling modulo their pool size, so any batch of even size drawn from
+    sequential or balanced_shuffle_sampler order holds exactly half clean and
+    half moire items. There is no synthesis fallback — an empty moire pool
+    raises ValueError. With balanced=False the samples list is walked in
+    order.
     """
 
     def __init__(
         self,
         samples: list[dict[str, Any]],
         transform: transforms.Compose | None = None,
-        augment_prob: float = MOIRE_AUGMENT_PROB,
+        moire_augment_prob: float = MOIRE_AUGMENT_PROB,
         type_names: list[str] | None = None,
         seed: int = DEFAULT_SEED,
         group_augment: bool = False,
@@ -56,8 +53,8 @@ class augmented_moire_dataset(moire_dataset):
         balanced: bool = False,
     ) -> None:
         super().__init__(samples=samples, transform=transform)
-        if not 0.0 <= augment_prob <= 1.0:
-            raise ValueError(f"augment_prob must be in [0.0, 1.0], got {augment_prob}")
+        if not 0.0 <= moire_augment_prob <= 1.0:
+            raise ValueError(f"moire_augment_prob must be in [0.0, 1.0], got {moire_augment_prob}")
         selected_names = list(MOIRE_TYPES) if type_names is None else list(type_names)
         unknown_names = [name for name in selected_names if name not in MOIRE_TYPES]
         if unknown_names:
@@ -70,7 +67,7 @@ class augmented_moire_dataset(moire_dataset):
         missing_generators = sorted(referenced_generators - set(MOIRE_GENERATORS))
         if missing_generators:
             raise ValueError(f"moire types reference unknown generators: {missing_generators}")
-        self.augment_prob = augment_prob
+        self.moire_augment_prob = moire_augment_prob
         self.seed = seed
         self.type_names = selected_names
         self.group_augment = group_augment
@@ -81,12 +78,12 @@ class augmented_moire_dataset(moire_dataset):
         if balanced:
             self.clean_pool = [sample for sample in samples if int(sample["label"]) == CLEAN_LABEL]
             self.moire_pool = [sample for sample in samples if int(sample["label"]) == MOIRE_LABEL]
-            synthesis_available = bool(self.type_names) and self.augment_prob > 0.0
             if not self.clean_pool:
                 raise ValueError(f"balanced=True requires at least one clean sample, got {len(self.clean_pool)}")
-            if not self.moire_pool and not synthesis_available:
+            if not self.moire_pool:
                 raise ValueError(
-                    "balanced=True requires moire samples or moire synthesis (augment_prob > 0.0 with at least one moire type)"
+                    f"balanced=True requires at least one real moire sample, got {len(self.moire_pool)}; "
+                    "there is no clean-source synthesis fallback"
                 )
             self.num_slots = max(len(self.clean_pool), len(self.moire_pool))
 
@@ -117,14 +114,29 @@ class augmented_moire_dataset(moire_dataset):
         grouped = self._apply_groups(image=array, rng=rng)
         return self._to_pil(array=grouped)
 
-    def _augment(self, image: Image.Image, rng: np.random.Generator) -> Image.Image:
-        type_name = sample_moire_type(rng=rng, type_names=self.type_names)
-        generator_name = str(rng.choice(a=generator_names_for_type(type_name=type_name)))
-        array = np.asarray(image, dtype=np.float32) / PIXEL_VALUE_MAX
-        augmented, _params = MOIRE_GENERATORS[generator_name](image=array, rng=rng)
+    def _augment_sample(self, image: Image.Image, label: int, rng: np.random.Generator) -> Image.Image:
+        """Shared class-aware augmentation path; the label is never changed.
+
+        Clean fetches (label 0) only receive group augmentation when enabled —
+        sample_moire_type and MOIRE_GENERATORS are unreachable here. Moire
+        fetches (label 1) may gain one synthesized moire pattern (drawn with
+        probability moire_augment_prob) before group augmentation.
+        """
+        if label == CLEAN_LABEL:
+            if self.group_augment:
+                return self._group_only(image=image, rng=rng)
+            return image
+        if self.moire_augment_prob > 0.0 and rng.random() < self.moire_augment_prob:
+            type_name = sample_moire_type(rng=rng, type_names=self.type_names)
+            generator_name = str(rng.choice(a=generator_names_for_type(type_name=type_name)))
+            array = np.asarray(image, dtype=np.float32) / PIXEL_VALUE_MAX
+            augmented, _params = MOIRE_GENERATORS[generator_name](image=array, rng=rng)
+            if self.group_augment:
+                augmented = self._apply_groups(image=augmented, rng=rng)
+            return self._to_pil(array=augmented)
         if self.group_augment:
-            augmented = self._apply_groups(image=augmented, rng=rng)
-        return self._to_pil(array=augmented)
+            return self._group_only(image=image, rng=rng)
+        return image
 
     def __len__(self) -> int:
         if self.balanced:
@@ -132,34 +144,20 @@ class augmented_moire_dataset(moire_dataset):
         return len(self.samples)
 
     def _getitem_balanced(self, index: int) -> tuple[Any, int]:
-        """Serve the interleaved index space: parity fixes the returned label.
+        """Serve the interleaved index space over the real class pools.
 
-        Even indices return a clean image (label 0) — moire synthesis never
-        fires on them, group augmentation follows the flag alone. Odd indices
-        return a moire image (label 1): with probability augment_prob a clean
-        source is moire-augmented, otherwise a real moire source passes through
-        unchanged apart from the group augmentation.
+        Even indices return a clean fetch (label 0), odd indices a moire fetch
+        (label 1); both pools cycle modulo their size, the smaller pool is
+        oversampled, and every fetch runs the shared _augment_sample path.
+        There is no synthesis fallback — the moire half always draws from the
+        real moire pool.
         """
         slot, want_moire = divmod(index, 2)
-        rng = self._rng()
-        if want_moire:
-            synthesis_available = bool(self.type_names) and self.augment_prob > 0.0
-            if not self.moire_pool or (synthesis_available and rng.random() < self.augment_prob):
-                source = self.clean_pool[slot % len(self.clean_pool)]
-                image = Image.open(source["path"]).convert(mode=IMAGE_COLOR_MODE)
-                image = self._augment(image=image, rng=rng)
-            else:
-                source = self.moire_pool[slot % len(self.moire_pool)]
-                image = Image.open(source["path"]).convert(mode=IMAGE_COLOR_MODE)
-                if self.group_augment:
-                    image = self._group_only(image=image, rng=rng)
-            label = MOIRE_LABEL
-        else:
-            source = self.clean_pool[slot % len(self.clean_pool)]
-            image = Image.open(source["path"]).convert(mode=IMAGE_COLOR_MODE)
-            if self.group_augment:
-                image = self._group_only(image=image, rng=rng)
-            label = CLEAN_LABEL
+        pool = self.moire_pool if want_moire else self.clean_pool
+        label = MOIRE_LABEL if want_moire else CLEAN_LABEL
+        source = pool[slot % len(pool)]
+        image = Image.open(source["path"]).convert(mode=IMAGE_COLOR_MODE)
+        image = self._augment_sample(image=image, label=label, rng=self._rng())
         if self.transform is not None:
             image = self.transform(image)
         return image, label
@@ -170,15 +168,7 @@ class augmented_moire_dataset(moire_dataset):
         sample = self.samples[index]
         image = Image.open(sample["path"]).convert(mode=IMAGE_COLOR_MODE)
         label = int(sample["label"])
-        if label == CLEAN_LABEL and self.type_names and self.augment_prob > 0.0:
-            rng = self._rng()
-            if rng.random() < self.augment_prob:
-                image = self._augment(image=image, rng=rng)
-                label = MOIRE_LABEL
-            elif self.group_augment:
-                image = self._group_only(image=image, rng=rng)
-        elif self.group_augment:
-            image = self._group_only(image=image, rng=self._rng())
+        image = self._augment_sample(image=image, label=label, rng=self._rng())
         if self.transform is not None:
             image = self.transform(image)
         return image, label

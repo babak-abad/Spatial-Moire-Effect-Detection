@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Why paired folders were sought — and the new separated per-sample-type pipelines</title>
+<style>
+body { font-family: system-ui, "Segoe UI", sans-serif; margin: 24px auto; max-width: 980px; padding: 0 16px; color: #1b1b1b; background: #fafafa; line-height: 1.5; }
+h1 { font-size: 20px; margin-bottom: 4px; }
+h2 { font-size: 16px; margin: 28px 0 8px; border-bottom: 2px solid #2e7d32; padding-bottom: 4px; }
+h3 { font-size: 14px; margin: 18px 0 6px; }
+p, li { font-size: 13px; }
+code { background: #eeeeee; padding: 1px 5px; border-radius: 3px; font-size: 12px; word-break: break-all; }
+pre { background: #f4f4f4; border: 1px solid #ddd; padding: 10px; overflow-x: auto; font-size: 11.5px; line-height: 1.45; }
+table { border-collapse: collapse; font-size: 12px; margin: 8px 0; }
+th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: #eeeeee; }
+.meta { font-size: 12px; color: #555; margin-bottom: 12px; }
+.ok { color: #2e7d32; font-weight: bold; }
+.lost { color: #c62828; font-weight: bold; }
+.changed { color: #b26a00; font-weight: bold; }
+.note { font-size: 11px; color: #777; }
+footer { font-size: 12px; color: #555; margin-top: 36px; border-top: 1px solid #ccc; padding-top: 10px; }
+.mermaid { background: #ffffff; border: 1px solid #ddd; padding: 10px; overflow-x: auto; }
+details { margin: 6px 0; }
+summary { cursor: pointer; font-size: 12px; color: #555; }
+</style>
+</head>
+<body>
+<h1>Why paired folders were sought — and the new separated per-sample-type pipelines</h1>
+<p class="meta">
+status: <b>implemented</b> — split engine, augmentation pipeline, preview, tests and docs follow this document · 2026-11-27 ·
+supersedes <code>docs/archive/split_redesign_plan.html</code>
+</p>
+
+<section id="why">
+<h2>1 · The question, answered directly: why was the plan looking for paired folders?</h2>
+<p><b>Short answer:</b> pairing was never a requirement of the classifier or of the augmentation. It was the
+<em>split-integrity unit</em> of an engine built back when the dataset was LCDMoire-only. LCDMoire stores every
+scene twice — <code>gt/x.jpg</code> (clean) and <code>moire/x.jpg</code> (real moire), matched by filename — and
+the code made that (moire, clean) pair the indivisible atom of the whole pipeline: index-aligned folder lists,
+1:1 filename binding, pair-level shuffle, twin-integrity tests. When commit <code>9eafbcf</code> added the
+AirDroid folders (two flat per-class pools with no twin relation), that atom stopped existing, and
+<code>list_folder_pairs</code> crashed at <code>data.py:62</code>
+(<code>"clean/moire folder lists must be index-aligned: 65 clean vs 104 moire folders"</code>). The previous plan
+(<code>docs/archive/split_redesign_plan.html</code>) proposed auto-detecting twin folders by identical filename sets —
+a patch that preserved the old invariant instead of questioning it.</p>
+
+<h3>What the pairing actually bought (the honest reasons it existed)</h3>
+<ol>
+<li><b>Leak-free evaluation.</b> <code>gt/x.jpg</code> and <code>moire/x.jpg</code> are near-duplicates of the
+same scene. If the moire twin lands in the test split while the clean twin sits in train, the model has
+effectively memorized the test scene and only needs to detect the deviation — test metrics inflate. The pair
+unit made twin leakage impossible by construction, and <code>tests/test_data_split.py:84</code> pinned it as a
+guarantee (“every moire/gt twin pair stays inside exactly one split”).</li>
+<li><b>Exact 50/50 class balance in every split, for free.</b> Every pair contributes exactly one clean and one
+moire sample, so train/val/test were exactly balanced without any balancing machinery.</li>
+</ol>
+
+<h3>Where the coupling lived (everything the new design removes)</h3>
+<ul>
+<li><code>config.py:26-32</code> documents the pools as index-aligned, filename-matched twin lists;</li>
+<li><code>list_folder_pairs</code> (<code>data.py:48-80</code>) enforces it — equal list lengths, identical
+filename sets, 1:1 binding — the crash site;</li>
+<li><code>split_train_val_test</code> (<code>data.py:100-125</code>) shuffles pair lists so twins always land in
+the same split;</li>
+<li><code>samples_from_pairs</code> (<code>data.py:83-88</code>) emits (moire, clean) tuples, coupling the
+classes at sample level;</li>
+<li><code>augmented_moire_dataset</code> coupled them deepest: in balanced mode (the default) the moire half of
+each batch is partly <em>synthesized from clean sources</em> (<code>train_baseline.py:203-205</code>) — the clean
+pipeline feeding the moire class — while clean fetches stay clean (parity just fixes labels,
+<code>augmentation.py:157-162</code>); on the unbalanced path (<code>--no-balance-batches</code>) clean fetches
+are even converted to moire with a label flip 0→1 (<code>augmentation.py:173-177</code>).</li>
+</ul>
+
+<h3>Why your direction is the right architecture</h3>
+<p>A binary moire detector needs <b>two labeled pools and per-class pipelines</b>, not coupled pairs. Class
+balance is already enforced where it actually matters — at <em>batch</em> level — by
+<code>balanced_moire_dataset</code> + <code>balanced_shuffle_sampler</code> (<code>data.py:178-240</code>),
+which interleave the <b>real</b> clean/moire pools and oversample the smaller one; no pairing is involved. The
+pools in <code>config.py</code> are already the flat per-class shape the new design wants (65 clean folders,
+104 moire folders, any lengths). The only thing pairing provided that nothing else in the codebase replaces is
+twin integrity — a data-hygiene property, not a correctness requirement. Section 2 quantifies exactly what is
+traded for removing it.</p>
+</section>
+<section id="tradeoff">
+<h2>2 · What is kept, what changes, what is honestly lost</h2>
+<table>
+<tr><th>Guarantee</th><th>Pair-based design (old)</th><th>Separated pipelines (new)</th></tr>
+<tr><td>Every pooled image lands in exactly one split (full coverage, no duplicates)</td><td>via the pair pool</td><td class="ok">kept — via per-class split units</td></tr>
+<tr><td>Seed-deterministic, reproducible split</td><td><code>random.Random(seed)</code> over pairs</td><td class="ok">kept — <code>Random(seed)</code> over clean units, <code>Random(seed+1)</code> over moire units</td></tr>
+<tr><td>Train/val/test sizes follow the fractions</td><td>exact (round over pairs)</td><td class="ok">kept — exact per class (round over each stream&rsquo;s units)</td></tr>
+<tr><td>Class balance per split</td><td>exact 50/50 (each pair = 1 clean + 1 moire)</td><td class="changed">near-exact: each split holds <code>round(f·n)</code> units of <em>each</em> class → ≈ 50.3/49.7; training batches stay exactly 50/50 (balanced batches unchanged)</td></tr>
+<tr><td>AirDroid near-duplicates (2&ndash;22 photos of one object) never span splits</td><td>not actually guaranteed for the unpaired AirDroid folders (the old plan wanted to fix this too)</td><td class="ok">guaranteed — small folders are atomic units within their stream</td></tr>
+<tr><td>Loud validation of missing/empty folders</td><td>yes</td><td class="ok">kept (<code>collect_class_samples</code> raises)</td></tr>
+<tr><td>Validation/test samples receive no augmentation of any kind</td><td>already true by construction — only the train set is wrapped in the augmented dataset</td><td class="ok">kept — pinned as rule R5, covered by tests</td></tr>
+<tr><td>LCDMoire twins (same scene, clean + moire) never separate</td><td>guaranteed by the pair unit</td><td class="lost">lost — see below</td></tr>
+</table>
+
+<h3>The honest cost: twin leakage</h3>
+<p>The two streams are shuffled and cut <em>independently</em>, so twins land independently:
+P(twins in different splits) = 1 − (0.8² + 0.1² + 0.1²) ≈ <b>34%</b>; in the metric-relevant direction (one twin
+in test, the other in train) it is 2 · 0.8 · 0.1 = <b>16%</b> — roughly 500 of the 3,160 LCDMoire scenes. Test
+numbers will read somewhat optimistic. Three mitigating facts:</p>
+<ul>
+<li>The old pair-based design <em>already</em> accepted the same cross-class scene leakage for every AirDroid
+object (its folders were never pairable).</li>
+<li>Measured on the actual data: the 160 stems in LCDMoire&rsquo;s <code>test</code> folders are a subset of the
+<code>train</code> folders&rsquo; stems (160/160 on both the gt and moire sides), as <em>different files</em>
+(0/160 byte-identical — same scene key, distinct captures). So even the pair-based engine could place the same
+scene in both train and test via its two folder copies: the twin guarantee was already weaker in practice than
+the code promised.</li>
+<li>Batch-level balance — the property that actually drives training — is untouched (balanced batches keep
+exact 50/50 from real pools).</li>
+</ul>
+<p class="note">An optional, off-by-default hash-alignment guard is sketched in §3.7 if evaluation honesty later
+becomes a priority; it is deliberately not part of this change.</p>
+</section>
+<section id="design">
+<h2>3 · The new design — separated per-sample-type pipelines</h2>
+<p>The redesign follows your directives as five rules:</p>
+<ul>
+<li><b>R1 · Separation.</b> Clean and moire samples are collected, split and augmented as two independent
+pipelines. The only thing they share is code.</li>
+<li><b>R2 · One shared method.</b> Both pipelines call the same augmentation entry point; the sample&rsquo;s
+class parameterizes it.</li>
+<li><b>R3 · Labels preserved.</b> A sample&rsquo;s label is fixed once, at collection time, from the pool the
+file came from (clean folder → 0, moire folder → 1). No augmentation may change it.</li>
+<li><b>R4 · Moire gating.</b> Moire-related augmentation (<code>sample_moire_type</code> +
+<code>MOIRE_GENERATORS</code>) may run <em>only</em> on moire-class samples. Clean-class samples can only
+receive label-neutral capture-style augmentation (the six imgaug groups + the torchvision train
+transform).</li>
+<li><b>R5 · Untouched evaluation data.</b> Validation and test samples are never affected by <em>any</em> type of
+augmentation — no moiré draw, no capture-style groups, no train transform. They flow through plain
+<code>moire_dataset</code> + <code>build_eval_transform</code> (deterministic resize → center-crop →
+normalize), which is already how the code builds them (<code>train_baseline.py:226</code>,
+<code>evaluate_baseline.py:131</code>); the redesign pins this as a tested guarantee instead of an implicit
+side effect.</li>
+</ul>
+
+<h3>3.1 · Split redesign (<code>src/spatial_moire/baseline/data.py</code>)</h3>
+<ul>
+<li><code>list_folder_pairs</code> and its entire contract (index alignment, filename matching, twin binding)
+are deleted. No pairing detection of any kind remains anywhere in the codebase.</li>
+<li>New <code>collect_class_samples(folders, label)</code>: walks each folder (must exist, must be non-empty —
+the loud <code>ValueError</code>s stay), lists images in filename order via <code>list_image_files</code>, and
+emits <code>{"path", "label"}</code> dicts. The label comes from the pool, never from content or augmentation
+(R3).</li>
+<li>New <code>build_split_units(folders, label)</code> builds the split units of <em>one</em> stream:
+<ul>
+<li>a folder holding ≤ <code>FOLDER_UNIT_MAX_IMAGES</code> (new config constant, default 32) images is one
+atomic unit — every AirDroid folder qualifies (measured 2&ndash;22 images, avg 4.9);</li>
+<li>a larger folder (LCDMoire: 160 and 3,000) contributes one unit per image, and images sharing a filename
+stem within one stream merge into a single unit — so the 160 test-folder captures of already-train scenes
+cannot straddle splits.</li>
+</ul></li>
+<li><code>split_train_val_test</code> keeps its exact signature
+<code>(clean_folders, moire_folders, train_fraction, val_fraction, test_fraction, seed)</code> — the call sites
+in <code>train_baseline.py</code>, <code>evaluate_baseline.py</code> and the tests stay untouched. New
+internals:
+<ol>
+<li><code>validate_split_fractions</code> (unchanged);</li>
+<li><code>clean_units = build_split_units(clean pool, CLEAN_LABEL)</code>;
+<code>moire_units = build_split_units(moire pool, MOIRE_LABEL)</code>;</li>
+<li><code>random.Random(seed).shuffle(clean_units)</code> and
+<code>random.Random(seed + 1).shuffle(moire_units)</code> — two independent shuffles;</li>
+<li>per stream: <code>train_count = round(len(units) · train_fraction)</code>, <code>val_count</code>
+likewise, test gets the remainder — the cut is applied to each stream separately;</li>
+<li>flatten: each split&rsquo;s sample list = its clean units&rsquo; samples + its moire units&rsquo;
+samples.</li>
+</ol></li>
+<li><code>save_split_manifest</code> gains <code>"algorithm": "per_class_units_v1"</code> (plus the unit
+threshold), so <code>evaluate_baseline.py</code> can refuse to replay a manifest produced by a different split
+algorithm instead of silently deriving a different split. <span class="note">Version note: the split-manifest
+format moves from the implicit pair-based v1 to the labeled <code>per_class_units_v1</code>; existing manifests
+are invalidated — the first training run after approval regenerates them.</span></li>
+<li>Unchanged on purpose: <code>moire_dataset</code>, <code>balanced_moire_dataset</code>,
+<code>balanced_shuffle_sampler</code>, <code>build_train_transform</code>, <code>build_eval_transform</code> —
+they are already per-class-pool and label-preserving. <code>samples_from_pairs</code> survives only as a small
+utility used by tests; it no longer participates in the split.</li>
+</ul>
+<h3>3.2 · Augmentation redesign (<code>src/spatial_moire/baseline/augmentation.py</code>)</h3>
+<ul>
+<li><code>augmented_moire_dataset</code> becomes the <b>shared, label-preserving, class-aware</b> pipeline
+(class name kept, contract rewritten). It is the one augmentation entry point both classes call (R2).</li>
+<li><b>Index space.</b> <code>balanced=True</code>: exactly <code>balanced_moire_dataset</code>&rsquo;s
+interleaved space — even slots address the <em>real</em> clean pool, odd slots the <em>real</em> moire pool, the
+smaller pool cycles (oversampled). There is <b>no synthesis fallback</b>: an empty moire pool raises
+<code>ValueError</code>, because balanced batches can no longer be filled from clean sources.
+<code>balanced=False</code>: walks <code>samples</code> in list order.</li>
+<li><b>One shared method</b>, <code>_augment_sample(image, label, rng)</code>:
+<ul>
+<li><code>label 0</code> (clean): group augmentation only (when enabled) via
+<code>apply_group_augmentation</code> — noise, photometric, contrast, blur, dropouts, geometric, all
+label-neutral. <code>sample_moire_type</code> and <code>MOIRE_GENERATORS</code> are structurally unreachable
+on this path (R4). Returned label: 0.</li>
+<li><code>label 1</code> (moire): with probability <code>moire_augment_prob</code>, draw a weighted moire type
+(<code>sample_moire_type</code>) and run its generator on the image — a real moire photo may gain one
+additional synthesized moire pattern (still moire); then group augmentation. Returned label: 1.</li>
+</ul></li>
+<li><b>Train-split-only scope (R5).</b> The augmented dataset is attached to the <em>train split only</em>,
+exactly as today (<code>train_baseline.py:182</code> builds train, <code>:226</code> builds val). Validation
+and test datasets stay plain <code>moire_dataset</code> with <code>build_eval_transform</code> — deterministic
+resize → center-crop → normalize, nothing else — so <code>moire_augment_prob</code> and
+<code>group_augment</code> cannot reach a val or test sample by construction
+(<code>evaluate_baseline.py:131</code> builds the test set the same way).</li>
+<li><b>Removed outright:</b> the on-the-fly clean→moire conversion and its label flip (the reassignment to
+<code>MOIRE_LABEL</code>), and the balanced-mode path that drew clean sources for moire slots. A clean image
+can no longer become moire anywhere inside the training pipeline.</li>
+<li><b>Parameters:</b> <code>augment_prob</code> is renamed <code>moire_augment_prob</code> (default
+<code>MOIRE_AUGMENT_PROB = 0.5</code>) with new meaning — the probability that a <em>moire-class</em> fetch
+receives the additional pattern draw. It never applies to clean fetches; <code>0.0</code> disables on-the-fly
+moire synthesis entirely (clean→moire then exists only in <code>generate_moire_samples.py</code>).
+<code>type_names</code>, <code>seed</code>, <code>group_augment</code>, <code>group_names</code>,
+<code>num_groups_range</code> are unchanged.</li>
+<li><code>train_baseline.py</code>: no call-site changes (same constructor, same flags
+<code>--moire-augment-prob</code>, <code>--moire-augment-types</code>, <code>--group-augment</code>,
+<code>--augment-groups</code>, <code>--augment-group-count</code>, <code>--no-balance-batches</code>); only
+help texts and console prints change — e.g. &ldquo;a 50% share of moire fetches receives an additional
+synthesized moire pattern; clean images only receive capture-style groups; labels never change&rdquo;.</li>
+<li><code>preview_train_augmentation.py</code>: selects the first N clean and N moire images with a seeded draw
+from the first folder of each pool, runs them through the same class pipelines for several passes, and labels
+gallery rows per class: clean → &ldquo;groups only&rdquo; / &ldquo;untouched&rdquo; (never moire); moire →
+&ldquo;type-augmented + groups&rdquo; / &ldquo;groups only&rdquo; / &ldquo;untouched&rdquo;. The paired-scene
+selection (<code>select_scene_pairs</code> / <code>list_folder_pairs</code>) and the &ldquo;clean → moire
+(synthesized)&rdquo; gallery path disappear.</li>
+<li><code>generate_moire_samples.py</code>: <b>unchanged by design</b>. That is the boundary of R4: turning a
+clean image into moire is <em>sample generation</em>, not pipeline augmentation — it happens offline, writes
+new moire-class files (<code>moire_&lt;type&gt;__&lt;stem&gt;_vNN.jpg</code> +
+<code>moire_synthesis_params.json</code>), and those files are moire samples with label 1 the moment their
+folder is listed in <code>MOIRE_IMAGE_FOLDERS</code>. (Assumption to confirm — §3.7.)</li>
+</ul>
+</section>
+<section id="diagrams">
+<h2>3.3 · Pipeline diagrams — before and after</h2>
+<p>Old pipeline (pair-coupled — the architecture that crashed):</p>
+<pre class="mermaid">
+flowchart TD
+    cfg["config.py pools: index-aligned, filename-matched twin lists"]
+    cfg --> lfp["list_folder_pairs: 1:1 binding, identical filename sets"]
+    lfp --> pool["pooled (moire, clean) pairs"]
+    pool -->|"random.Random(seed).shuffle(pairs)"| cut["train / val / test pair slices"]
+    cut --> tr["train samples: samples_from_pairs, label = position in pair"]
+    cut --> ev["val / test samples: moire_dataset + build_eval_transform — no augmentation (already true then)"]
+    tr --> aug["augmented_moire_dataset(balanced=True)"]
+    aug --> mhalf["moire half: real moire OR synthesized from clean sources — deepest coupling"]
+    aug --> chalf["clean half: stays clean (label 0) — parity fixes labels"]
+    aug -.-> unbal["unbalanced path (--no-balance-batches): clean fetches converted, label 0→1"]
+    lfp -.->|"AirDroid: 65 clean vs 104 moire folders"| crash["data.py:62 ValueError: the pair atom no longer exists"]
+    classDef crash_node fill:#ffebee,stroke:#c62828,color:#b71c1c,stroke-width:2px
+    class crash crash_node
+</pre>
+<details><summary>ASCII fallback (renders offline, without the Mermaid CDN)</summary>
+<pre>
+CLEAN_IMAGE_FOLDERS[i] ── index-aligned 1:1 ──&gt; MOIRE_IMAGE_FOLDERS[i]
+        └── list_folder_pairs: identical filename sets ("twins") ──┐
+                                                                   ▼
+   pooled (moire, clean) pairs ── random.Random(seed).shuffle(pairs) ──&gt; train/val/test pair slices
+                                                                   ▼
+                     samples_from_pairs ──&gt; train samples (label = position in pair)
+                                                                   ▼
+                 augmented_moire_dataset(balanced=True)   [train samples only]
+                 · moire half : real moire ──or── synthesized from clean sources   ← deepest coupling
+                 · clean half : stays clean (label 0) — parity fixes labels in balanced mode;
+                   conversion to moire happens only on the unbalanced --no-balance-batches path
+                 (val/test slices → moire_dataset + build_eval_transform — no augmentation, already true)
+   CRASH: "65 clean vs 104 moire folders" — the pair atom no longer exists
+</pre>
+</details>
+<p>New pipeline (separated per-sample-type, one shared augmentation method):</p>
+<pre class="mermaid">
+flowchart TD
+    subgraph clean_pipe["clean pipeline — label 0"]
+        cf["CLEAN_IMAGE_FOLDERS (any length)"]
+        cf --> ccs["collect_class_samples(label=0)"]
+        ccs --> cu["clean split units: folder-atomics ≤ 32 imgs, image/stem units above"]
+        cu -->|"Random(seed).shuffle"| ccut["round(fraction·n) cut per stream"]
+    end
+    subgraph moire_pipe["moire pipeline — label 1"]
+        mf["MOIRE_IMAGE_FOLDERS (any length)"]
+        mf --> mcs["collect_class_samples(label=1)"]
+        mcs --> mu["moire split units: folder-atomics ≤ 32 imgs, image/stem units above"]
+        mu -->|"Random(seed+1).shuffle"| mcut["round(fraction·n) cut per stream"]
+    end
+    ccut --> trn["train sample lists (label 0 + label 1)"]
+    mcut --> trn
+    ccut --> held["val / test sample lists"]
+    mcut --> held
+    trn --> shared["augmented_moire_dataset — one shared method _augment_sample(image, label, rng)"]
+    shared --> clean_path["clean fetches: group augmentation only → label stays 0"]
+    shared --> moire_path["moire fetches: moire draw (p = moire_augment_prob) + groups → label stays 1"]
+    shared --> balanced_mode["balanced=True: interleaved slots over REAL pools only, smaller pool oversampled"]
+    held --> evalds["plain moire_dataset + build_eval_transform: deterministic resize/crop/normalize — zero augmentation (R5)"]
+    classDef gate_node fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+    classDef eval_node fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
+    class clean_path,moire_path gate_node
+    class evalds eval_node
+</pre>
+<details><summary>ASCII fallback (renders offline, without the Mermaid CDN)</summary>
+<pre>
+CLEAN_IMAGE_FOLDERS (any length)                MOIRE_IMAGE_FOLDERS (any length)
+        │                                            │
+        │ collect_class_samples(label=0)              │ collect_class_samples(label=1)
+        ▼                                            ▼
+  clean split units                            moire split units
+  (folder-atomics &lt;=32 imgs,                    (folder-atomics &lt;=32 imgs,
+   image/stem units above)                       image/stem units above)
+        │                                            │
+        │ Random(seed).shuffle                       │ Random(seed+1).shuffle
+        └────────────┐                    ┌───────────┘
+                     ▼                    ▼
+      round(fraction · n) cut per stream → train / val / test sample lists (label 0 + label 1)
+                     │
+      ┌──────────────┴──────────────────────────┐
+      ▼ train split ONLY                        ▼ val / test splits
+      augmented_moire_dataset                   plain moire_dataset + build_eval_transform
+      —— one shared method                      (deterministic resize → center-crop → normalize,
+      _augment_sample(image, label, rng)        zero augmentation of any kind — R5)
+      ├─ clean fetches : group augmentation only            → label stays 0
+      ├─ moire fetches : moire draw (p=moire_augment_prob)  → label stays 1
+      │                  + group augmentation
+      └─ balanced=True : interleaved slots over REAL pools only, smaller pool oversampled
+</pre>
+</details>
+<p class="note">Mermaid diagrams load from the jsDelivr CDN and need internet; the ASCII fallbacks render anywhere.</p>
+</section>
+<section id="numbers">
+<h2>3.4 · Expected numbers (measured on the current pools)</h2>
+<ul>
+<li>Pools: <b>65 clean folders / 3,583 images</b> · <b>104 moire folders / 3,545 images</b> · 7,128 total.</li>
+<li>LCDMoire: 3,160 clean (train 3,000 + test 160) and 3,160 moire; the 160 test-folder stems all also appear
+in the train folders (as distinct files).</li>
+<li>AirDroid: 63 clean folders / 423 images (2&ndash;22 per folder, avg 4.9) · 102 moire folders / 385 images.</li>
+<li>Split units: clean = 3,000 stem-merged LCDMoire units + 63 folder units = <b>3,063</b> · moire = 3,000 +
+102 = <b>3,102</b>.</li>
+<li>0.8 / 0.1 / 0.1 cut per stream ≈ clean 2,450 / 306 / 307 units and moire 2,481 / 310 / 311 units →
+sample-level split sizes ≈ <b>train 5,700 · val 715 · test 715</b>, each ≈ 50.3% clean / 49.7% moire.</li>
+<li>Balanced epochs (training): <code>num_slots</code> ≈ 2,866 → ≈ 5,732 items per epoch, every batch exactly
+50/50 from real pools.</li>
+</ul>
+</section>
+
+<section id="files">
+<h2>3.5 · Files to change on approval</h2>
+<ul>
+<li><code>src/config.py</code>: pools docstring rewritten (flat per-class pools, no alignment contract); new
+<code>FOLDER_UNIT_MAX_IMAGES = 32</code>; <code>MOIRE_AUGMENT_PROB</code> doc reworded (moire-class only);
+preview constants doc.</li>
+<li><code>src/spatial_moire/baseline/data.py</code>: delete <code>list_folder_pairs</code>; add
+<code>collect_class_samples</code> + <code>build_split_units</code>; rewrite
+<code>split_train_val_test</code> internals (signature unchanged); manifest gains
+<code>algorithm</code>.</li>
+<li><code>src/spatial_moire/baseline/augmentation.py</code>: rework <code>augmented_moire_dataset</code> into
+the shared label-preserving class-aware pipeline (<code>_augment_sample</code>); remove clean→moire conversion
+and the clean-source synthesis fallback; rename <code>augment_prob</code> → <code>moire_augment_prob</code>.</li>
+<li><code>src/train_baseline.py</code>: help texts / console prints only (construction calls
+unchanged).</li>
+<li><code>src/preview_train_augmentation.py</code>: per-class selection, per-class gallery rows and per-class
+path stats; remove paired-scene selection and the clean→moire gallery.</li>
+<li><code>src/evaluate_baseline.py</code>: check the manifest&rsquo;s <code>algorithm</code> marker; re-derivation
+logic otherwise unchanged.</li>
+<li><code>tests/test_data_split.py</code>: replace twin-integrity checks with unit/fraction/coverage/
+atomicity/determinism/manifest checks.</li>
+<li><code>tests/test_augmentation.py</code>: label preservation across all fetches; clean-never-moire;
+moire-draw gating by probability; balanced mode over real pools only; <code>ValueError</code> on empty moire
+pool + balanced; eval purity — the val/test path (<code>moire_dataset</code> + <code>build_eval_transform</code>)
+is deterministic and ignores <code>moire_augment_prob</code> / <code>group_augment</code>.</li>
+<li><code>tests/test_balanced_batches.py</code>: unchanged except any case relying on synthesis
+fallback.</li>
+<li><code>docs/dataset.md</code>: rewritten to the new pooling/split/augmentation story.</li>
+<li><code>docs/split_redesign_plan.html</code>: superseded by this document — archived at <code>docs/archive/</code>.</li>
+</ul>
+</section>
+<section id="validation">
+<h2>3.6 · Validation plan (run after implementation)</h2>
+<ol>
+<li><code>.venv\Scripts\python.exe tests\test_data_split.py</code> — the new guarantees (coverage, fractions
+per class, unit atomicity, determinism, manifest).</li>
+<li><code>.venv\Scripts\python.exe tests\test_augmentation.py</code> and
+<code>tests\test_balanced_batches.py</code> — label preservation, moire gating, real-pool balance, and eval
+purity: val/test tensors identical across two passes, unaffected by the augmentation flags.</li>
+<li><code>.venv\Scripts\python.exe src\preview_train_augmentation.py</code> — per-class galleries: no clean row
+ever shows a moire pattern; moire rows show the three possible paths.</li>
+<li><code>.venv\Scripts\python.exe src\train_baseline.py --epochs 1</code> — the <code>data.py:62</code> crash
+is gone; per-split and per-class counts are printed; balanced batches are live.</li>
+<li><code>.venv\Scripts\python.exe src\evaluate_baseline.py</code> — manifest replay reproduces the test
+split.</li>
+</ol>
+</section>
+
+<section id="assumptions">
+<h2>3.7 · Assumptions and open items (explicitly awaiting your word)</h2>
+<ol>
+<li><b><code>generate_moire_samples.py</code> stays.</b> Offline synthesis remains the only place a clean image
+becomes moire — it writes new moire-class files rather than relabeling or in-pipeline augmenting a clean
+sample. If you want that tool removed as well, say so.</li>
+<li><b><code>moire_augment_prob</code> default.</b> 0.5 now governs the additional pattern draw on <em>real
+moire fetches only</em>. Prefer 0.0 (on-the-fly moire synthesis fully off; synthesis only offline)? One-line
+change.</li>
+<li><b>Twin leakage accepted</b> (≈16% of scenes with one twin in test and the other in train) as the price of
+fully separated pipelines. If it later matters, an off-by-default guard can derive each unit&rsquo;s split from
+<code>hash(seed, stem)</code> — twins share stems, so they would coincide without any pairing logic.</li>
+<li><b>Old <code>split_manifest.json</code> files are invalidated</b> by the algorithm change (marker
+<code>per_class_units_v1</code>); the first training run after approval regenerates them.</li>
+<li><b>R5 needs no new machinery.</b> Validation and test datasets are already built augmentation-free
+(<code>train_baseline.py:226</code>, <code>evaluate_baseline.py:131</code>); the rule adds tests and
+documentation, not code paths.</li>
+</ol>
+</section>
+
+<footer>
+Implemented and validated on 2026-11-27: the split engine, augmentation pipeline, preview, tests and
+documentation follow this document, and the &sect;3.6 validation plan passed.
+</footer>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>if (window.mermaid) { mermaid.initialize({ startOnLoad: true, theme: "neutral" }); }</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-"""Sanity checks for balanced training batches (half clean / half moire per batch)."""
+"""Sanity checks for balanced training batches (half clean / half moire drawn from the real class pools)."""
 
 from __future__ import annotations
 
@@ -21,7 +21,6 @@ from spatial_moire.baseline.data import (  # noqa: E402
     balanced_moire_dataset,
     balanced_shuffle_sampler,
     moire_dataset,
-    samples_from_pairs,
 )
 
 SAMPLE_DIRS: dict[str, Path] = {"gt": CLEAN_IMAGE_FOLDERS[0], "moire": MOIRE_IMAGE_FOLDERS[0]}
@@ -45,18 +44,7 @@ def image_paths(kind: str, count: int) -> list[Path]:
     return paths
 
 
-def paired_samples(pair_count: int) -> list[dict]:
-    pairs = list(
-        zip(
-            image_paths(kind="moire", count=pair_count),
-            image_paths(kind="gt", count=pair_count),
-            strict=True,
-        )
-    )
-    return samples_from_pairs(pairs=pairs)
-
-
-def unbalanced_samples(clean_count: int, moire_count: int) -> list[dict]:
+def class_samples(clean_count: int, moire_count: int) -> list[dict]:
     samples = [{"path": str(path), "label": 0} for path in image_paths(kind="gt", count=clean_count)]
     samples += [{"path": str(path), "label": 1} for path in image_paths(kind="moire", count=moire_count)]
     return samples
@@ -77,7 +65,7 @@ def balanced_loader(
 
 
 def check_parity_mapping_balanced_dataset() -> None:
-    samples = unbalanced_samples(clean_count=3, moire_count=11)
+    samples = class_samples(clean_count=3, moire_count=11)
     dataset = balanced_moire_dataset(samples=samples, transform=None)
     assert dataset.num_slots == 11, "num_slots must be the larger pool size"
     assert len(dataset) == 22, "length must be 2 * max(n_clean, n_moire)"
@@ -89,7 +77,7 @@ def check_parity_mapping_balanced_dataset() -> None:
 
 
 def check_exact_split_through_real_dataloader() -> None:
-    samples = paired_samples(pair_count=12)
+    samples = class_samples(clean_count=12, moire_count=12)
     dataset = balanced_moire_dataset(samples=samples, transform=TO_TENSOR)
     loader = balanced_loader(dataset=dataset)
     batches = [(len(labels), int(labels.sum())) for _images, labels in loader]
@@ -98,7 +86,7 @@ def check_exact_split_through_real_dataloader() -> None:
 
 
 def check_unbalanced_sources_stay_balanced() -> None:
-    samples = unbalanced_samples(clean_count=3, moire_count=11)
+    samples = class_samples(clean_count=3, moire_count=11)
     dataset = balanced_moire_dataset(samples=samples, transform=TO_TENSOR)
     for batch_index, (_images, labels) in enumerate(balanced_loader(dataset=dataset)):
         moire_count = int(labels.sum())
@@ -109,11 +97,11 @@ def check_unbalanced_sources_stay_balanced() -> None:
 
 
 def check_balanced_augmentation_semantics() -> None:
-    samples = paired_samples(pair_count=4)
+    samples = class_samples(clean_count=4, moire_count=4)
     clean_paths = [sample["path"] for sample in samples if sample["label"] == 0]
     moire_paths = [sample["path"] for sample in samples if sample["label"] == 1]
-    always = augmented_moire_dataset(samples=samples, transform=None, augment_prob=1.0, seed=3, balanced=True)
-    never = augmented_moire_dataset(samples=samples, transform=None, augment_prob=0.0, seed=3, balanced=True)
+    always = augmented_moire_dataset(samples=samples, transform=None, moire_augment_prob=1.0, seed=3, balanced=True)
+    never = augmented_moire_dataset(samples=samples, transform=None, moire_augment_prob=0.0, seed=3, balanced=True)
     assert len(always) == len(never) == 8, "balanced augmentation must keep the 2 * max(pool) index space"
     for index in range(8):
         slot = index // 2
@@ -122,10 +110,10 @@ def check_balanced_augmentation_semantics() -> None:
             never_image, never_label = never[index]
             assert (always_label, never_label) == (1, 1), f"moire slot {index} must carry the moire label"
             assert np.array_equal(to_array(never_image), load_array(Path(moire_paths[slot]))), (
-                f"moire slot {index} with augment_prob=0 must be the real moire source unchanged"
+                f"moire slot {index} with moire_augment_prob=0 must pass the real moire source through unchanged"
             )
-            assert not np.array_equal(to_array(always_image), load_array(Path(clean_paths[slot]))), (
-                f"moire slot {index} with augment_prob=1 must synthesize moire from the clean source"
+            assert not np.array_equal(to_array(always_image), load_array(Path(moire_paths[slot]))), (
+                f"moire slot {index} with moire_augment_prob=1 must gain a pattern on top of the real moire source"
             )
         else:
             always_image, always_label = always[index]
@@ -135,14 +123,14 @@ def check_balanced_augmentation_semantics() -> None:
                 f"clean slot {index} must pass through unchanged"
             )
             assert np.array_equal(to_array(always_image), to_array(never_image)), (
-                f"clean slot {index} must never receive moire synthesis, whatever augment_prob is"
+                f"clean slot {index} must never receive moire synthesis, whatever moire_augment_prob is"
             )
-    print("ok: augment_prob=1 synthesizes every moire slot, augment_prob=0 passes real moire through, clean slots stay clean")
+    print("ok: moire_augment_prob=1 patterns every moire slot, prob=0 passes real moire through, clean slots stay clean")
 
 
 def check_balanced_augmented_batches() -> None:
-    samples = paired_samples(pair_count=10)
-    dataset = augmented_moire_dataset(samples=samples, transform=TO_TENSOR, augment_prob=0.5, seed=7, balanced=True)
+    samples = class_samples(clean_count=10, moire_count=10)
+    dataset = augmented_moire_dataset(samples=samples, transform=TO_TENSOR, moire_augment_prob=0.5, seed=7, balanced=True)
     assert len(dataset) == 20, "balanced augmented dataset must expose 2 * num_slots items"
     for batch_index, (_images, labels) in enumerate(balanced_loader(dataset=dataset)):
         moire_count = int(labels.sum())
@@ -154,8 +142,8 @@ def check_balanced_augmented_batches() -> None:
 
 
 def check_balanced_batches_with_workers() -> None:
-    samples = paired_samples(pair_count=12)
-    dataset = augmented_moire_dataset(samples=samples, transform=TO_TENSOR, augment_prob=0.5, seed=42, balanced=True)
+    samples = class_samples(clean_count=12, moire_count=12)
+    dataset = augmented_moire_dataset(samples=samples, transform=TO_TENSOR, moire_augment_prob=0.5, seed=42, balanced=True)
     for batch_index, (_images, labels) in enumerate(balanced_loader(dataset=dataset, num_workers=2)):
         moire_count = int(labels.sum())
         assert 2 * moire_count == len(labels), f"worker batch {batch_index} holds {moire_count} moire of {len(labels)}"
@@ -180,10 +168,13 @@ def check_sampler_properties() -> None:
 
 def check_invalid_pools_are_rejected() -> None:
     attempts = (
-        lambda: balanced_moire_dataset(samples=unbalanced_samples(clean_count=0, moire_count=4), transform=None),
-        lambda: balanced_moire_dataset(samples=unbalanced_samples(clean_count=4, moire_count=0), transform=None),
+        lambda: balanced_moire_dataset(samples=class_samples(clean_count=0, moire_count=4), transform=None),
+        lambda: balanced_moire_dataset(samples=class_samples(clean_count=4, moire_count=0), transform=None),
         lambda: augmented_moire_dataset(
-            samples=unbalanced_samples(clean_count=4, moire_count=0), transform=None, augment_prob=0.0, balanced=True
+            samples=class_samples(clean_count=4, moire_count=0), transform=None, moire_augment_prob=0.0, balanced=True
+        ),
+        lambda: augmented_moire_dataset(
+            samples=class_samples(clean_count=4, moire_count=0), transform=None, moire_augment_prob=1.0, balanced=True
         ),
         lambda: balanced_shuffle_sampler(num_slots=0, seed=42),
     )
@@ -193,24 +184,13 @@ def check_invalid_pools_are_rejected() -> None:
         except ValueError:
             continue
         raise AssertionError("empty class pools and zero slots must raise ValueError")
-    synthetic = augmented_moire_dataset(
-        samples=unbalanced_samples(clean_count=4, moire_count=0),
-        transform=None,
-        augment_prob=1.0,
-        seed=5,
-        balanced=True,
-    )
-    assert len(synthetic) == 8, "clean-only sources must balance through synthesis"
-    for index in range(8):
-        _image, label = synthetic[index]
-        assert label == index % 2, f"clean-only index {index} must follow parity labels"
-    print("ok: empty pools raise ValueError; clean-only sources balance through forced synthesis")
+    print("ok: empty class pools raise ValueError; balanced mode never falls back to clean-source synthesis")
 
 
 def check_default_mode_is_unchanged() -> None:
-    samples = unbalanced_samples(clean_count=4, moire_count=4)
+    samples = class_samples(clean_count=4, moire_count=4)
     plain = moire_dataset(samples=samples, transform=None)
-    augmented = augmented_moire_dataset(samples=samples, transform=None, augment_prob=0.0, seed=42)
+    augmented = augmented_moire_dataset(samples=samples, transform=None, moire_augment_prob=0.0, seed=42)
     assert len(plain) == len(augmented) == 8, "balanced=False must keep the plain index space"
     for index in range(8):
         _plain_image, plain_label = plain[index]

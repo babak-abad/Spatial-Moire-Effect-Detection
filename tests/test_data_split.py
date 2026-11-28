@@ -1,7 +1,8 @@
-"""Sanity checks for the config-driven pooled train / val / test split."""
+"""Sanity checks for the per-class unit-based train / val / test split."""
 
 from __future__ import annotations
 
+import random
 import sys
 import tempfile
 from pathlib import Path
@@ -13,25 +14,25 @@ if str(SRC_ROOT) not in sys.path:
 
 from config import (  # noqa: E402
     CLEAN_IMAGE_FOLDERS,
+    CLEAN_LABEL,
     DEFAULT_SEED,
+    FOLDER_UNIT_MAX_IMAGES,
     MOIRE_IMAGE_FOLDERS,
+    MOIRE_LABEL,
     SPLIT_MANIFEST_FILENAME,
     TEST_FRACTION,
     TRAIN_FRACTION,
     VAL_FRACTION,
 )
 from spatial_moire.baseline.data import (  # noqa: E402
-    list_folder_pairs,
+    SPLIT_MANIFEST_ALGORITHM,
+    build_split_units,
+    collect_class_samples,
     load_split_manifest,
-    samples_from_pairs,
     save_split_manifest,
     split_train_val_test,
     validate_split_fractions,
 )
-
-
-def pooled_pair_groups() -> list[list[tuple[Path, Path]]]:
-    return list_folder_pairs(clean_folders=CLEAN_IMAGE_FOLDERS, moire_folders=MOIRE_IMAGE_FOLDERS)
 
 
 def run_split(seed: int = DEFAULT_SEED) -> tuple[list[dict], list[dict], list[dict]]:
@@ -49,65 +50,93 @@ def run_split_with_fractions(train_fraction: float, val_fraction: float, test_fr
     return train_samples
 
 
+def stream_units(label: int) -> list[list[dict]]:
+    folders = CLEAN_IMAGE_FOLDERS if label == CLEAN_LABEL else MOIRE_IMAGE_FOLDERS
+    return build_split_units(folders=folders, label=label)
+
+
+def shuffled_stream_units(label: int, seed: int = DEFAULT_SEED) -> list[list[dict]]:
+    units = stream_units(label=label)
+    random.Random(seed + (0 if label == CLEAN_LABEL else 1)).shuffle(units)
+    return units
+
+
 def sample_paths(samples: list[dict]) -> set[str]:
     return {sample["path"] for sample in samples}
 
 
-def check_folder_pools_exist_and_pair_by_filename() -> None:
-    assert len(CLEAN_IMAGE_FOLDERS) == len(MOIRE_IMAGE_FOLDERS), "clean/moire folder lists must be index-aligned"
-    pair_groups = pooled_pair_groups()
-    for clean_dir, moire_dir in zip(CLEAN_IMAGE_FOLDERS, MOIRE_IMAGE_FOLDERS, strict=True):
-        assert clean_dir.is_dir() and moire_dir.is_dir(), f"configured folder pair does not exist: {clean_dir} / {moire_dir}"
-    for pair_group in pair_groups:
-        for moire_path, clean_path in pair_group:
-            assert moire_path.name == clean_path.name, f"twins must share a filename: {moire_path} vs {clean_path}"
-    total_pairs = sum(len(pair_group) for pair_group in pair_groups)
-    print(f"ok: {len(CLEAN_IMAGE_FOLDERS)} folder pairs hold {total_pairs} filename-matched scene pairs")
+def check_folder_pools_exist_and_hold_images() -> None:
+    clean_pool = collect_class_samples(folders=CLEAN_IMAGE_FOLDERS, label=CLEAN_LABEL)
+    moire_pool = collect_class_samples(folders=MOIRE_IMAGE_FOLDERS, label=MOIRE_LABEL)
+    assert all(sample["label"] == CLEAN_LABEL for sample in clean_pool), "the clean pool must label every sample 0"
+    assert all(sample["label"] == MOIRE_LABEL for sample in moire_pool), "the moire pool must label every sample 1"
+    print(
+        f"ok: {len(CLEAN_IMAGE_FOLDERS)} clean pool folders hold {len(clean_pool)} images, "
+        f"{len(MOIRE_IMAGE_FOLDERS)} moire pool folders hold {len(moire_pool)} images"
+    )
 
 
 def check_split_counts_match_fractions() -> None:
-    total_pairs = sum(len(pair_group) for pair_group in pooled_pair_groups())
     train_samples, val_samples, test_samples = run_split()
-    expected_train = 2 * round(total_pairs * TRAIN_FRACTION)
-    expected_val = 2 * round(total_pairs * VAL_FRACTION)
-    expected_test = 2 * total_pairs - expected_train - expected_val
-    assert len(train_samples) == expected_train, f"train size {len(train_samples)} != {expected_train}"
-    assert len(val_samples) == expected_val, f"val size {len(val_samples)} != {expected_val}"
-    assert len(test_samples) == expected_test, f"test size {len(test_samples)} != {expected_test}"
-    for name, samples in (("train", train_samples), ("val", val_samples), ("test", test_samples)):
-        moire_count = sum(1 for sample in samples if sample["label"] == 1)
-        clean_count = sum(1 for sample in samples if sample["label"] == 0)
-        assert moire_count == clean_count == len(samples) // 2, f"{name} must stay class-balanced (one twin per pair)"
-    print(f"ok: {total_pairs} pairs split into {expected_train}/{expected_val}/{expected_test} class-balanced samples")
+    for label in (CLEAN_LABEL, MOIRE_LABEL):
+        units = shuffled_stream_units(label=label)
+        train_count = round(len(units) * TRAIN_FRACTION)
+        val_count = round(len(units) * VAL_FRACTION)
+        slices = (
+            ("train", train_samples, units[:train_count]),
+            ("val", val_samples, units[train_count : train_count + val_count]),
+            ("test", test_samples, units[train_count + val_count :]),
+        )
+        for name, samples, unit_slice in slices:
+            expected = sum(len(unit) for unit in unit_slice)
+            actual = sum(1 for sample in samples if sample["label"] == label)
+            assert actual == expected, f"{name} holds {actual} label-{label} samples, expected {expected}"
+    total_samples = sum(len(unit) for label in (CLEAN_LABEL, MOIRE_LABEL) for unit in stream_units(label=label))
+    print(f"ok: {total_samples} pooled samples split per stream with rounded unit cuts, test gets the remainder")
 
 
-def check_twins_never_separate() -> None:
-    twins = {
-        str(moire_path): str(clean_path)
-        for pair_group in pooled_pair_groups()
-        for moire_path, clean_path in pair_group
-    }
-    names = ("train", "val", "test")
+def check_units_never_straddle_splits() -> None:
     split_paths = [sample_paths(samples=samples) for samples in run_split()]
-    for index, name in enumerate(names):
-        for moire_path in split_paths[index]:
-            clean_twin = twins.get(moire_path)
-            if clean_twin is None:
-                continue
-            assert clean_twin in split_paths[index], f"the clean twin of a {name} moire image is missing from {name}"
-            for other_index, other_paths in enumerate(split_paths):
-                if other_index != index:
-                    assert clean_twin not in other_paths, f"a {name} twin leaked into {names[other_index]}"
-    print("ok: every moire/gt twin pair stays inside exactly one split")
+    for label in (CLEAN_LABEL, MOIRE_LABEL):
+        for unit in stream_units(label=label):
+            unit_paths = {sample["path"] for sample in unit}
+            homes = [index for index, paths in enumerate(split_paths) if unit_paths & paths]
+            assert len(homes) == 1, (
+                f"a {len(unit)}-sample label-{label} unit must stay inside exactly one split, straddled {homes}"
+            )
+    print("ok: atomic folder units and merged same-stem units never straddle a split boundary")
 
 
 def check_full_coverage_without_duplicates() -> None:
-    all_samples = samples_from_pairs(pairs=[pair for pair_group in pooled_pair_groups() for pair in pair_group])
+    all_samples = collect_class_samples(folders=CLEAN_IMAGE_FOLDERS, label=CLEAN_LABEL)
+    all_samples += collect_class_samples(folders=MOIRE_IMAGE_FOLDERS, label=MOIRE_LABEL)
     combined = [sample for samples in run_split() for sample in samples]
-    assert len(all_samples) == len(sample_paths(samples=all_samples)), "the pooled pools must not repeat a path"
+    assert len(all_samples) == len(sample_paths(samples=all_samples)), "the class pools must not repeat a path"
     assert sample_paths(samples=combined) == sample_paths(samples=all_samples), "every pooled path must be covered"
     assert len(combined) == len(sample_paths(samples=combined)), "no path may appear in two splits"
     print(f"ok: the three splits cover all {len(all_samples)} pooled samples exactly once")
+
+
+def check_split_lists_order_clean_before_moire() -> None:
+    for name, samples in zip(("train", "val", "test"), run_split(), strict=True):
+        labels = [sample["label"] for sample in samples]
+        clean_count = labels.count(CLEAN_LABEL)
+        assert labels == [CLEAN_LABEL] * clean_count + [MOIRE_LABEL] * (len(labels) - clean_count), (
+            f"the {name} list must hold all clean samples before all moire samples"
+        )
+    print("ok: every split list orders its clean samples before its moire samples")
+
+
+def check_stream_shuffles_follow_seed_offsets() -> None:
+    train_samples, _val_samples, _test_samples = run_split()
+    for label in (CLEAN_LABEL, MOIRE_LABEL):
+        units = shuffled_stream_units(label=label)
+        train_count = round(len(units) * TRAIN_FRACTION)
+        expected = [sample["path"] for unit in units[:train_count] for sample in unit]
+        actual = [sample["path"] for sample in train_samples if sample["label"] == label]
+        stream = "clean" if label == CLEAN_LABEL else "moire"
+        assert actual == expected, f"the {stream} train stream must follow its dedicated Random(seed offset) shuffle"
+    print("ok: the clean stream shuffles with Random(seed), the moire stream with Random(seed + 1)")
 
 
 def check_determinism_follows_the_seed() -> None:
@@ -142,45 +171,55 @@ def check_folder_pools_are_validated() -> None:
         for name in ("a.jpg", "b.jpg"):
             (moire_dir / name).write_bytes(b"")
             (clean_dir / name).write_bytes(b"")
-        pair_groups = list_folder_pairs(clean_folders=[clean_dir], moire_folders=[moire_dir])
-        assert len(pair_groups) == 1 and len(pair_groups[0]) == 2
         empty_dir = root / "empty"
         empty_dir.mkdir()
-        (clean_dir / "c.jpg").write_bytes(b"")
         attempts = (
-            lambda: list_folder_pairs(clean_folders=[clean_dir], moire_folders=[moire_dir, moire_dir]),
-            lambda: list_folder_pairs(clean_folders=[root / "missing_a"], moire_folders=[root / "missing_b"]),
-            lambda: list_folder_pairs(clean_folders=[empty_dir], moire_folders=[moire_dir]),
-            lambda: list_folder_pairs(clean_folders=[clean_dir], moire_folders=[moire_dir]),
+            lambda: collect_class_samples(folders=[root / "missing_a"], label=CLEAN_LABEL),
+            lambda: collect_class_samples(folders=[empty_dir], label=CLEAN_LABEL),
+            lambda: build_split_units(folders=[root / "missing_b"], label=MOIRE_LABEL),
         )
         for attempt in attempts:
             try:
                 attempt()
             except ValueError:
                 continue
-            raise AssertionError("invalid folder pools must raise ValueError")
-    print("ok: misaligned list lengths, missing/empty folders and filename mismatches raise ValueError")
+            raise AssertionError("missing or empty folders must raise ValueError")
+        extra_moire = root / "extra_moire"
+        extra_moire.mkdir()
+        (extra_moire / "c.jpg").write_bytes(b"")
+        train_samples, _val_samples, _test_samples = split_train_val_test(
+            clean_folders=[clean_dir],
+            moire_folders=[moire_dir, extra_moire],
+            train_fraction=1.0,
+            val_fraction=0.0,
+            test_fraction=0.0,
+        )
+        labels = [sample["label"] for sample in train_samples]
+        assert labels == [CLEAN_LABEL, CLEAN_LABEL, MOIRE_LABEL, MOIRE_LABEL, MOIRE_LABEL], (
+            "pools of unequal size and unaligned folder lists must split without any pairing requirement"
+        )
+    print("ok: missing/empty folders raise ValueError; pools of unequal size split without pairing")
 
 
 def check_manifest_round_trip() -> None:
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp)
-        clean_dir = root / "gt"
-        moire_dir = root / "moire"
-        clean_dir.mkdir()
-        moire_dir.mkdir()
-        for name in ("a.jpg", "b.jpg", "c.jpg", "d.jpg"):
-            (moire_dir / name).write_bytes(b"")
-            (clean_dir / name).write_bytes(b"")
+        clean_dirs = [root / f"gt_{index}" for index in range(8)]
+        moire_dirs = [root / f"moire_{index}" for index in range(8)]
+        for index, (clean_dir, moire_dir) in enumerate(zip(clean_dirs, moire_dirs, strict=True)):
+            clean_dir.mkdir()
+            moire_dir.mkdir()
+            (moire_dir / f"{index}.jpg").write_bytes(b"")
+            (clean_dir / f"{index}.jpg").write_bytes(b"")
         train_samples, val_samples, test_samples = split_train_val_test(
-            clean_folders=[clean_dir],
-            moire_folders=[moire_dir],
+            clean_folders=clean_dirs,
+            moire_folders=moire_dirs,
             train_fraction=0.5,
             val_fraction=0.25,
             test_fraction=0.25,
             seed=9,
         )
-        assert (len(train_samples), len(val_samples), len(test_samples)) == (4, 2, 2)
+        assert (len(train_samples), len(val_samples), len(test_samples)) == (8, 4, 4)
         manifest_path = root / SPLIT_MANIFEST_FILENAME
         save_split_manifest(
             train_samples=train_samples,
@@ -194,6 +233,10 @@ def check_manifest_round_trip() -> None:
         )
         manifest = load_split_manifest(path=manifest_path)
         assert manifest is not None, "load_split_manifest must read the saved manifest"
+        assert manifest["algorithm"] == SPLIT_MANIFEST_ALGORITHM, "the manifest must pin the split algorithm version"
+        assert manifest["folder_unit_max_images"] == FOLDER_UNIT_MAX_IMAGES, (
+            "the manifest must record the unit-grouping threshold it was built with"
+        )
         assert manifest["seed"] == 9
         assert (manifest["train_fraction"], manifest["val_fraction"], manifest["test_fraction"]) == (0.5, 0.25, 0.25)
         assert manifest["train"] == train_samples
@@ -203,8 +246,8 @@ def check_manifest_round_trip() -> None:
         assert manifest["val_count"] == len(val_samples)
         assert manifest["test_count"] == len(test_samples)
         replay_train, replay_val, replay_test = split_train_val_test(
-            clean_folders=[clean_dir],
-            moire_folders=[moire_dir],
+            clean_folders=clean_dirs,
+            moire_folders=moire_dirs,
             train_fraction=manifest["train_fraction"],
             val_fraction=manifest["val_fraction"],
             test_fraction=manifest["test_fraction"],
@@ -214,14 +257,16 @@ def check_manifest_round_trip() -> None:
             "the split must be re-derivable from the recorded manifest settings (evaluate_baseline.py relies on this)"
         )
         assert load_split_manifest(path=root / "missing.json") is None, "a missing manifest must load as None"
-    print("ok: split_manifest.json round-trips seed, fractions and all three sample lists")
+    print("ok: split_manifest.json round-trips algorithm, seed, fractions and all three sample lists")
 
 
 def main() -> None:
-    check_folder_pools_exist_and_pair_by_filename()
+    check_folder_pools_exist_and_hold_images()
     check_split_counts_match_fractions()
-    check_twins_never_separate()
+    check_units_never_straddle_splits()
     check_full_coverage_without_duplicates()
+    check_split_lists_order_clean_before_moire()
+    check_stream_shuffles_follow_seed_offsets()
     check_determinism_follows_the_seed()
     check_invalid_fractions_are_rejected()
     check_folder_pools_are_validated()

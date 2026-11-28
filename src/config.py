@@ -1,7 +1,7 @@
 """Central configuration and constants for the Spatial-Moire-Effect-Detection project.
 
 Single source of truth for every hard-coded value: repository paths, dataset
-source pools (index-aligned clean / moire folder lists), split fractions, class
+source pools (flat per-class folder lists), split unit settings and fractions, class
 labels, transform / training / evaluation / DataLoader /
 training-progress console defaults, output filenames, plotting settings,
 moire type prevalence weights, pattern-engine constants, the synthesis
@@ -23,13 +23,12 @@ REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 SRC_ROOT: Path = REPO_ROOT / "src"
 
 # --- Dataset source pools -------------------------------------------------------
-# Two index-aligned folder lists separate the image classes: CLEAN_IMAGE_FOLDERS
-# holds the moire-free (clean / gt) images, MOIRE_IMAGE_FOLDERS the real moire
-# images. CLEAN_IMAGE_FOLDERS[i] and MOIRE_IMAGE_FOLDERS[i] contain the SAME
-# scenes matched by filename (LCDMoire gt / moire twins), so every scene pair is
-# one indivisible split unit and neither twin can leak across train / val / test.
-# Folders are scanned non-recursively; unequal list lengths, missing or empty
-# folders and filename mismatches raise ValueError when pairs are collected.
+# Two flat, independent per-class folder lists: CLEAN_IMAGE_FOLDERS holds the
+# moire-free (clean / gt) images, MOIRE_IMAGE_FOLDERS the real moire images.
+# There is no alignment contract — the lists may differ in length and content;
+# the label of a sample comes from its pool alone. Folders are scanned
+# non-recursively; a missing or empty folder raises ValueError when a pool is
+# collected (collect_class_samples in baseline/data.py).
 IMAGE_EXTENSIONS: tuple[str, ...] = (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff")
 
 DEFAULT_OUTPUT_DIR: Path = REPO_ROOT / "results" / "baseline_resnet18"
@@ -209,11 +208,16 @@ MOIRE_IMAGE_FOLDERS: list[Path] = [
     Path(r"D:\projects\Div\ai-existence-check\data\datasets\Photos_downloaded_by_AirDroid_2\flat watch 9"),
 ]
 
-# --- Split fractions (applied to the pooled scene pairs) ---------------------------
-# The three fractions must lie in [0, 1] and sum to 1.0. Train and val pair
-# counts are rounded from the fractions, test receives the remainder, so every
-# pooled scene pair lands in exactly one split. The split is drawn at pair level
-# (twins stay together) by split_train_val_test with the training seed.
+# --- Split settings (per-class units) ---------------------------------------------
+# A pool folder holding at most FOLDER_UNIT_MAX_IMAGES images is one indivisible
+# split unit; a larger folder contributes one unit per image, and images sharing
+# a filename stem within one stream merge into a single unit (build_split_units
+# in baseline/data.py).
+FOLDER_UNIT_MAX_IMAGES: int = 32
+# The three fractions must lie in [0, 1] and sum to 1.0. Each class stream's
+# units are cut independently: train and val unit counts are rounded from the
+# fractions, test receives the remainder, so every unit lands in exactly one
+# split. The cut is drawn by split_train_val_test with the training seed.
 TRAIN_FRACTION: float = 0.8
 VAL_FRACTION: float = 0.1
 TEST_FRACTION: float = 0.1
@@ -261,6 +265,9 @@ TRAIN_NUM_WORKERS: int = 8
 TRAIN_PRETRAINED: bool = True
 LEARNING_RATE: float = 1e-4
 WEIGHT_DECAY: float = 1e-4
+# Probability that a moire-class train fetch gains one additional synthesized
+# moire pattern (moire fetches only; clean fetches never become moire inside
+# the training pipeline — augmented_moire_dataset in baseline/augmentation.py).
 MOIRE_AUGMENT_PROB: float = 0.5
 # Balanced train batches: every train batch holds exactly batch_size // 2 clean
 # and batch_size // 2 moire items (balanced_moire_dataset plus
@@ -295,8 +302,8 @@ MOIRE_SAMPLE_FILENAME_TEMPLATE: str = "moire_{type_name}__{source_stem}_v{varian
 
 # --- Train-augmentation preview defaults (preview_train_augmentation.py) -------------------
 # The preview script runs the training augmentation class (augmented_moire_dataset,
-# transform=None) over a few paired clean / real-moire scenes drawn from the first
-# configured clean/moire folder pair for several passes and saves every input and
+# transform=None) over a few clean and real moire images drawn from the first
+# folder of each class pool for several passes and saves every input and
 # output JPEG plus an HTML gallery and a JSON manifest into its own output folder
 # for offline analysis.
 AUGMENTATION_PREVIEW_OUTPUT_DIR: Path = SAMPLES_OUTPUT_DIR / "augmentation_preview"

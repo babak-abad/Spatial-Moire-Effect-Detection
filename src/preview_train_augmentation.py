@@ -1,9 +1,9 @@
 """Save the training augmentation pipeline's outputs for clean and moire inputs as an HTML preview.
 
 Runs the exact augmented_moire_dataset used by train_baseline.py (with
-transform=None so the returned PIL images stay viewable) over a few paired
-clean / real-moire scenes drawn from the first configured clean/moire folder
-pair for several passes, captures the drawn recipe
+transform=None so the returned PIL images stay viewable) over a few clean and
+real-moire scenes — each drawn with a seeded pick from the first configured
+clean / moire pool folder — for several passes, captures the drawn recipe
 with delegate-only recorders around the training dispatch points, saves every
 input and output JPEG plus thumbnails, and writes a self-contained HTML
 gallery and a JSON manifest into the output folder for offline analysis.
@@ -52,13 +52,13 @@ from config import (  # noqa: E402
 )
 from spatial_moire.baseline.augmentation import augmented_moire_dataset  # noqa: E402
 import spatial_moire.baseline.augmentation as augmentation_module  # noqa: E402
-from spatial_moire.baseline.data import list_folder_pairs, samples_from_pairs  # noqa: E402
+from spatial_moire.baseline.data import collect_class_samples  # noqa: E402
 from spatial_moire.moire_types import MOIRE_TYPES, type_probabilities  # noqa: E402
 from spatial_moire.synthesis.groups import AUGMENTATION_GROUPS  # noqa: E402
 
 PAGE_TITLE: str = "Train augmentation preview — Spatial-Moire-Effect-Detection"
 PATH_SHORT_TEXT: dict[str, str] = {
-    "clean_to_moire": "clean → moire (synthesized)",
+    "moire_patterned": "real moire + pattern",
     "clean_groups_only": "clean, groups only",
     "moire_groups_only": "real moire, groups only",
     "untouched": "untouched",
@@ -162,22 +162,31 @@ class draw_recorder:
         self._originals = None
 
 
-def select_scene_pairs(num_scenes: int, rng: np.random.Generator) -> list[tuple[Path, Path]]:
-    """Pick num_scenes paired (moire, clean) scenes from the first config folder pair with a seeded draw, kept in filename order.
+def select_scene_samples(
+    num_scenes: int,
+    rng: np.random.Generator,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Pick num_scenes clean and num_scenes real-moire scenes from the first config pool folder of each class with a seeded draw, kept in filename order.
 
-    Only the first clean/moire folder pair is used so every scene stem stays
-    unique: the gallery and the manifest key records by (kind, stem) and stems
-    repeat across folder pairs.
+    Only the first clean pool folder and the first moire pool folder are used
+    so every scene stem stays unique: the gallery and the manifest key
+    records by (kind, stem) and stems repeat across the folders of a pool.
     """
     if num_scenes < 1:
         raise SystemExit("--num-scenes must be at least 1")
-    pairs = list_folder_pairs(clean_folders=CLEAN_IMAGE_FOLDERS, moire_folders=MOIRE_IMAGE_FOLDERS)[0]
-    if num_scenes > len(pairs):
+    clean_pool = collect_class_samples(folders=[CLEAN_IMAGE_FOLDERS[0]], label=CLEAN_LABEL)
+    moire_pool = collect_class_samples(folders=[MOIRE_IMAGE_FOLDERS[0]], label=MOIRE_LABEL)
+    if num_scenes > len(clean_pool):
         raise SystemExit(
-            f"--num-scenes {num_scenes} exceeds the {len(pairs)} paired scenes under {MOIRE_IMAGE_FOLDERS[0]}"
+            f"--num-scenes {num_scenes} exceeds the {len(clean_pool)} clean images under {CLEAN_IMAGE_FOLDERS[0]}"
         )
-    chosen = sorted(int(index) for index in rng.permutation(len(pairs))[:num_scenes])
-    return [pairs[index] for index in chosen]
+    if num_scenes > len(moire_pool):
+        raise SystemExit(
+            f"--num-scenes {num_scenes} exceeds the {len(moire_pool)} moire images under {MOIRE_IMAGE_FOLDERS[0]}"
+        )
+    clean_pick = sorted(int(index) for index in rng.permutation(len(clean_pool))[:num_scenes])
+    moire_pick = sorted(int(index) for index in rng.permutation(len(moire_pool))[:num_scenes])
+    return [clean_pool[index] for index in clean_pick], [moire_pool[index] for index in moire_pick]
 
 
 def thumbnail_filename(image_filename: str) -> str:
@@ -194,7 +203,7 @@ def save_thumbnail(image: Image.Image, path: Path) -> None:
 def classify_path(source_kind: str, record: dict[str, Any]) -> str:
     """Name the __getitem__ path taken, from what the recorders captured."""
     if "moire_type" in record:
-        return "clean_to_moire"
+        return "moire_patterned"
     if "groups" in record:
         return f"{source_kind}_groups_only"
     return "untouched"
@@ -293,6 +302,7 @@ def verify_recording_is_pixel_neutral(
 def compute_statistics(records: list[dict[str, Any]]) -> dict[str, Any]:
     """Aggregate the drawn recipes: path counts, type distribution, group frequencies."""
     clean_records = [record for record in records if record["source_kind"] == "clean"]
+    moire_records = [record for record in records if record["source_kind"] == "moire"]
     synthesized_records = [record for record in records if "moire_type" in record]
     grouped_records = [record for record in records if "groups" in record]
     num_groups_values = [int(record["groups"]["num_groups"]) for record in grouped_records]
@@ -300,7 +310,8 @@ def compute_statistics(records: list[dict[str, Any]]) -> dict[str, Any]:
         "num_records": len(records),
         "path_counts": dict(Counter(record["path"] for record in records)),
         "num_clean_records": len(clean_records),
-        "num_converted_clean": sum(1 for record in clean_records if record["path"] == "clean_to_moire"),
+        "num_moire_records": len(moire_records),
+        "num_patterned_moire": sum(1 for record in moire_records if record["path"] == "moire_patterned"),
         "num_synthesized": len(synthesized_records),
         "type_counts": dict(Counter(record["moire_type"] for record in synthesized_records)),
         "num_grouped_draws": len(grouped_records),
@@ -412,7 +423,7 @@ def render_html_document(
         ("script", "src/preview_train_augmentation.py"),
         (
             "dataset",
-            f"first clean/moire source folder pair · {CLEAN_IMAGE_FOLDERS[0]} + {MOIRE_IMAGE_FOLDERS[0]} (paired scenes)",
+            f"first clean pool folder + first moire pool folder · {CLEAN_IMAGE_FOLDERS[0]} + {MOIRE_IMAGE_FOLDERS[0]} (per-class pools)",
         ),
         ("inputs", f"{args.num_scenes} clean + {args.num_scenes} real moire"),
         ("passes", f"{args.passes} over one dataset instance (rng advances like epochs)"),
@@ -432,8 +443,9 @@ def render_html_document(
         "transform=None, i.e. the augmented image before the torchvision train transform (RandomResizedCrop 224, "
         "flips, ColorJitter, ImageNet normalization). The moire synthesis and the group augmentation are identical "
         "to training.",
-        "Labels are the labels training consumes: clean inputs that are moire-synthesized are relabeled 1, clean "
-        "inputs that stay clean keep label 0, and real moire inputs keep label 1.",
+        "Labels are the labels training consumes and never change: clean inputs stay label 0 and real moire "
+        "inputs stay label 1; the moire class may gain one additional synthesized moire pattern on top of the "
+        "real moire content.",
         "One dataset instance serves all passes and its rng advances across them (like epochs), so every pass draws "
         "a fresh recipe for the same input.",
         "Recipes are captured with delegate-only wrappers around the training dispatch points (no extra rng draws, "
@@ -446,12 +458,12 @@ def render_html_document(
 
     if args.moire_augment_prob > 0.0:
         conversion_line = (
-            f"clean → moire conversions: {stats['num_converted_clean']} / {stats['num_clean_records']} clean fetches "
-            f"({stats['num_converted_clean'] / max(stats['num_clean_records'], 1):.0%}; "
+            f"extra patterns on real moire fetches: {stats['num_patterned_moire']} / {stats['num_moire_records']} moire fetches "
+            f"({stats['num_patterned_moire'] / max(stats['num_moire_records'], 1):.0%}; "
             f"expected {args.moire_augment_prob:.0%})"
         )
     else:
-        conversion_line = "moiré synthesis disabled (augment_prob = 0): clean inputs can only receive groups"
+        conversion_line = "moiré pattern augmentation disabled (moire_augment_prob = 0): no extra patterns on real moire inputs"
     groups_line = (
         f"grouped fetches: {stats['num_grouped_draws']} · mean {stats['mean_groups_per_draw']:.2f} groups per draw "
         f"(draw range {group_count_range[0]}-{group_count_range[1]})"
@@ -564,7 +576,7 @@ def parse_args() -> argparse.Namespace:
         type=int,
         metavar=("LOW", "HIGH"),
         default=None,
-        help="inclusive range of augmentation groups applied per augmented image",
+        help="inclusive range of augmentation groups applied per train image",
     )
     return parser.parse_args()
 
@@ -574,14 +586,13 @@ def main() -> None:
     if args.passes < 1:
         raise SystemExit("--passes must be at least 1")
     selection_rng = np.random.default_rng(seed=args.seed)
-    pairs = select_scene_pairs(num_scenes=args.num_scenes, rng=selection_rng)
+    clean_samples, moire_samples = select_scene_samples(num_scenes=args.num_scenes, rng=selection_rng)
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    samples = samples_from_pairs(pairs=pairs)
-    # samples_from_pairs emits the moire sample before the clean sample of each pair.
-    scene_kinds = [kind for _pair in pairs for kind in ("moire", "clean")]
+    samples = clean_samples + moire_samples
+    scene_kinds = [kind for kind in ("clean", "moire") for _ in range(args.num_scenes)]
     scene_stems = [Path(sample["path"]).stem for sample in samples]
     print(
-        f"previewing {args.num_scenes} paired scenes ({args.num_scenes} clean + {args.num_scenes} real moire) "
+        f"previewing {args.num_scenes} clean + {args.num_scenes} real moire scenes "
         f"x {args.passes} passes with seed {args.seed}",
         flush=True,
     )
@@ -596,7 +607,7 @@ def main() -> None:
     dataset_kwargs: dict[str, Any] = {
         "samples": samples,
         "transform": None,
-        "augment_prob": args.moire_augment_prob,
+        "moire_augment_prob": args.moire_augment_prob,
         "type_names": type_names,
         "seed": args.seed,
         "group_augment": args.group_augment,
@@ -621,12 +632,18 @@ def main() -> None:
         "seed": args.seed,
         "clean_image_folders": [str(folder) for folder in CLEAN_IMAGE_FOLDERS],
         "moire_image_folders": [str(folder) for folder in MOIRE_IMAGE_FOLDERS],
-        "selected_scenes_folder": str(CLEAN_IMAGE_FOLDERS[0]),
-        "selected_scenes": [gt_path.name for _moire_path, gt_path in pairs],
+        "selected_scenes_folders": {
+            "clean": str(CLEAN_IMAGE_FOLDERS[0]),
+            "moire": str(MOIRE_IMAGE_FOLDERS[0]),
+        },
+        "selected_scenes": {
+            "clean": [Path(sample["path"]).name for sample in clean_samples],
+            "moire": [Path(sample["path"]).name for sample in moire_samples],
+        },
         "config": {
             "num_scenes": args.num_scenes,
             "passes": args.passes,
-            "augment_prob": args.moire_augment_prob,
+            "moire_augment_prob": args.moire_augment_prob,
             "type_names": type_names,
             "type_probabilities": probabilities,
             "group_augment": args.group_augment,

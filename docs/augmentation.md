@@ -1,17 +1,21 @@
 # Augmentation pipeline — moiré synthesis plus capture-style group corruption
 
-This document is the canonical description of how augmented data is produced: a
-two-stage pipeline that turns a clean screen photograph into a labeled moiré
-sample. **Stage 1** synthesizes the moiré pattern itself (procedural generators
-driven by the weighted type registry of `docs/moire_types.md`). **Stage 2**
-optionally corrupts the result — and, through the same decision, real moiré
-photographs and clean images that stay clean, both of which skip Stage 1 —
-with a random subset of capture-style augmentation groups (imgaug) that
-emulate sensor read noise, exposure error, tone-curve drift, defocus/shake
-blur, dead pixels and camera-angle drift — so moiré evidence, synthetic or
-real, is degraded the way a fresh capture would degrade it while the clean
-class sees the very same corruption, never letting degradation itself
-become a moiré cue.
+This document is the canonical description of how augmented data is produced:
+a two-stage, **label-preserving, class-aware** pipeline shared by both
+classes. **Stage 1** synthesizes one additional moiré pattern (procedural
+generators driven by the weighted type registry of `docs/moire_types.md`) —
+reachable only from the moire-class path: with probability `moire_augment_prob`
+a real moiré photograph gains a pattern on top of the moiré innate to the
+capture. **Stage 2** optionally corrupts every fetch — patterned or plain
+moire, and clean images alike — with a random subset of capture-style
+augmentation groups (imgaug) that emulate sensor read noise, exposure error,
+tone-curve drift, defocus/shake blur, dead pixels and camera-angle drift — so
+moiré evidence is degraded the way a fresh capture would degrade it while the
+clean class sees the very same corruption, never letting degradation itself
+become a moiré cue. Labels never change on any path: a clean image can never
+become moiré inside the training pipeline (offline synthesis in
+`src/generate_moire_samples.py` is the only place a clean source turns into
+new moiré-class files).
 
 Machine-readable counterparts:
 
@@ -30,39 +34,37 @@ Machine-readable counterparts:
 
 ```mermaid
 flowchart TD
-    A["Clean source image<br/>(HxWx3 uint8, label 0)"] --> B{"Augment draw:<br/>rng.random() < augment_prob ?"}
-    B -- "yes · label 1" --> C["Stage 1 · draw moiré type<br/>possibility = weight / total_weight"]
+    A["Clean source image<br/>(HxWx3 uint8, label 0)"] --> F{"group_augment<br/>enabled?"}
+    M["Real moiré source image<br/>(moiré innate to the capture, label 1)"] --> B{"Moire draw:<br/>rng.random() < moire_augment_prob ?"}
+    B -- "yes · label stays 1" --> C["Stage 1 · draw moiré type<br/>possibility = weight / total_weight"]
     C --> D["Stage 1 · draw generator<br/>uniform among the type's mapped generators"]
-    D --> E["Stage 1 · moiré synthesis<br/>generator(image, rng) → image + params"]
-    E --> F{"group_augment<br/>enabled?"}
-    B -- "no · label 0" --> F
+    D --> E["Stage 1 · moiré synthesis on top<br/>generator(image, rng) → image + params"]
+    E --> F
+    B -- "no · label stays 1" --> F
     F -- "no" --> H["Clip to [0, 1] · scale to uint8"]
     F -- "yes" --> G["Stage 2 · apply_group_augmentation<br/>random ordered subset of the six groups<br/>(each step clipped to [0, 1])"]
     G --> H
-    H -- "label 1" --> I["Moire sample<br/>(label 1)"]
-    H -- "label 0" --> Z["Clean sample<br/>(label 0)"]
-    M["Real moiré source image<br/>(moiré innate to the capture, label 1)"] --> P["Pass through unchanged<br/>(no moiré synthesis, label 1)"]
-    P --> F
+    H --> I["Moire sample<br/>(label 1)"]
+    H --> Z["Clean sample<br/>(label 0)"]
     style I fill:#1b5e20,stroke:#1b5e20,color:#ffffff
     style Z fill:#0d47a1,stroke:#0d47a1,color:#ffffff
     style M fill:#4a148c,stroke:#4a148c,color:#ffffff
-    style P fill:#4a148c,stroke:#4a148c,color:#ffffff
+    style B fill:#4a148c,stroke:#4a148c,color:#ffffff
 ```
 
-The label is settled before Stage 2: the augment draw alone flips a clean
-image to label 1, and group corruption never changes it. Real moiré images
-— photographs that innately show the effect, label 1 — never enter Stage 1:
-they pass through moiré synthesis unchanged and then flow into the same
-`group_augment enabled?` decision as the synthetic path. Clean images that
-lose the augment draw join that decision as well. When group augmentation
-is disabled (or draws zero groups) the clip/scale round-trip is lossless,
-so both reach the output pixel-identical to the source file with their
-original label; when it is enabled they receive the same capture-style
-corruption as the synthetic positives — the real moiré evidence being
-degraded the way a fresh capture would degrade it, and the clean image
-staying clean under the very corruptions the positives see, so degradation
-itself can never act as a moiré cue. Either way every sample undergoes only
-the standard train transform (crop/flip/tensor). Source files are never
+The label of a fetch always equals the label of its source sample. Clean
+images (label 0) never enter Stage 1 — moiré synthesis is structurally
+unreachable on the clean path, so `moire_augment_prob` has no effect on them:
+with group augmentation off they reach the output pixel-identical to the
+source file, with it on they receive the same capture-style corruption as the
+positives while staying clean, so degradation itself can never act as a moiré
+cue. Real moiré images (label 1) may gain, with probability
+`moire_augment_prob`, one additional synthesized moiré pattern on top of the
+moiré innate to the capture, then flow into the same `group_augment enabled?`
+decision. When group augmentation is disabled (or draws zero groups) the
+clip/scale round-trip is lossless, so an unaugmented fetch is pixel-identical
+to the source file with its original label. Either way every sample undergoes
+only the standard train transform (crop/flip/tensor). Source files are never
 modified on any path.
 
 ## Stage 1 — moiré synthesis
@@ -137,18 +139,18 @@ Default applied count per image: `GROUP_AUGMENT_COUNT_RANGE = (2, 4)`.
 
 `augmented_moire_dataset` (in `src/spatial_moire/baseline/augmentation.py`),
 used by `src/train_baseline.py`. Its samples come from the config-driven
-pooled split (see `docs/dataset.md`): training feeds it the train portion of
-`split_train_val_test` and validates on the val portion:
+per-class split (see `docs/dataset.md`): training feeds it the train portion
+of `split_train_val_test` and validates on the val portion:
 
 ```mermaid
 flowchart TD
     A["Image.open + convert"] --> L{"label ?"}
-    L -- "clean (0)" --> B{"moire draw:<br/>rng.random() < augment_prob ?"}
-    B -- "yes · label 1" --> S["sample_moire_type → draw generator →<br/>MOIRE_GENERATORS"]
-    B -- "no · label 0" --> F{"group_augment<br/>enabled?"}
-    L -- "real moiré (1):<br/>no moiré synthesis" --> F
+    L -- "clean (0):<br/>no moiré synthesis, ever" --> F{"group_augment<br/>enabled?"}
+    L -- "moire (1)" --> B{"moire draw:<br/>rng.random() < moire_augment_prob ?"}
+    B -- "yes" --> S["sample_moire_type → draw generator →<br/>MOIRE_GENERATORS (pattern on top)"]
+    B -- "no" --> F
     S --> F
-    F -- "no" --> U["clip, scale to uint8, PIL image<br/>(label settled before the groups)"]
+    F -- "no" --> U["clip, scale to uint8, PIL image<br/>(label never changes)"]
     F -- "yes" --> G["apply_group_augmentation<br/>from the worker rng"]
     G --> U
     U --> T["train transform (crop/flip/tensor)"]
@@ -157,29 +159,31 @@ flowchart TD
 
 - Each DataLoader worker owns its own `Generator` seeded `seed + worker_id`,
   so augmentation is reproducible and workers never share state.
-- Constructor options: `group_augment` (off by default), `group_names`
-  (subset, all by default), `num_groups_range` (default `(2, 4)`) — invalid
-  names or ranges raise `ValueError` at construction time.
-- The moiré-augmented share is controlled by `augment_prob`
-  (`--moire-augment-prob`); the label follows the moiré draw alone — a
-  moiré-augmented image always carries the moiré label, and a
-  group-corrupted clean image stays clean, so corruption itself can never
-  leak the label.
-- Real moiré images are decided first and skip moiré synthesis: they flow
-  straight into the group_augment decision, so with `group_augment=True`
-  a genuine positive receives the same capture-style groups (drawn from
-  the worker rng) as a synthetic one, and with it off reaches the
-  transform exactly as loaded from disk — pinned by
-  `check_real_moire_images_receive_group_augmentation` and
-  `check_real_moire_group_path_matches_pipeline`.
-- Clean images that lose the moiré draw enter the same decision: with
-  `group_augment=True` they receive the same capture-style groups while
-  keeping label 0, and with it off reach the transform exactly as loaded
-  from disk — pinned by `check_clean_images_receive_group_augmentation`
-  and `check_clean_group_path_matches_pipeline`. When the moiré draw is
-  impossible (`augment_prob = 0` or an empty type selection) it is skipped
-  without consuming rng, so those images go straight to the group draw
-  exactly like real moiré.
+- Constructor options: `moire_augment_prob` (default from
+  `MOIRE_AUGMENT_PROB`), `type_names` (subset, all by default),
+  `group_augment` (off by default), `group_names` (subset, all by default),
+  `num_groups_range` (default `(2, 4)`) and `balanced` (off by default) —
+  invalid probabilities, type names, group names or ranges raise `ValueError`
+  at construction time.
+- `moire_augment_prob` (`--moire-augment-prob`) is the probability that a
+  **moire-class fetch** gains one additional synthesized moiré pattern,
+  drawn by weighted type sampling and rendered before the groups. Clean
+  fetches are unaffected by it — pixel-identical when group augmentation is
+  off, group-corrupted but still label 0 when on — so the flag can never move
+  the clean/moire class boundary; the label mix stays that of the split (or
+  exactly half/half per batch with balanced batches).
+- Real moiré fetches at `moire_augment_prob = 0` pass through unchanged
+  (pixel-identical when groups are off); at `moire_augment_prob = 1` every
+  moire fetch gains a pattern on top of the innate moiré — pinned by
+  `check_zero_probability_keeps_labels_and_pixels`,
+  `check_patterned_moire_images_keep_label` and `check_same_seed_is_reproducible`
+  in `tests/test_augmentation.py`.
+- Clean fetches keep label 0 and are pixel-identical unless group
+  augmentation is enabled, in which case they receive the capture-style
+  groups while staying clean — pinned by
+  `check_clean_images_never_become_moire` and
+  `check_clean_images_keep_label_under_group_augmentation`. The moiré draw
+  is unreachable on the clean path, so it is skipped without consuming rng.
 
 #### Balanced train batches (default)
 
@@ -195,13 +199,14 @@ smaller class pool is oversampled to `max(n_clean, n_moire)` slots per class
 per epoch; an odd `batch_size` (or below 2) is rejected up front, and
 `--no-balance-batches` restores plain shuffled batches.
 
-Inside `augmented_moire_dataset(balanced=True)` the parity also fixes the
-label: clean slots never draw moiré synthesis (they may still receive the
-capture-style groups), and moire slots are a real moiré source passed through
-or — with probability `augment_prob` — a clean source with forced moiré
-synthesis, so `augment_prob` becomes the synthesized share of the moire half.
-With no moiré sources at all, balance is kept through synthesis alone
-(`augment_prob > 0` then required); an empty clean pool raises `ValueError`.
+Inside `augmented_moire_dataset(balanced=True)` the parity fixes the class:
+even slots are clean fetches that only ever receive the label-neutral group
+augmentation, odd slots are moire fetches drawn from the **real moire pool** —
+passed through at `moire_augment_prob = 0` or, with probability
+`moire_augment_prob`, granted one additional synthesized pattern on top of the
+innate moiré, so `moire_augment_prob` is the patterned share of the moire
+half. There is no synthesis fallback: an empty clean or moire pool raises
+`ValueError` (balance requires real images of both classes).
 
 ### Offline sample generation
 
@@ -228,7 +233,8 @@ images never flow through it:
 | `src/generate_moire_samples.py` | `--groups` | corrupt every sample with the group pipeline |
 | | `--group-names NAME ...` | restrict the draw to a subset of groups (all by default) |
 | | `--group-count LOW HIGH` | inclusive applied-groups range (default `(2, 4)`) |
-| `src/train_baseline.py` | `--group-augment` | corrupt every training image with the groups, labels unchanged |
+| `src/train_baseline.py` | `--moire-augment-prob P` | probability a moire-class fetch gains one extra synthesized pattern (default from `MOIRE_AUGMENT_PROB`) |
+| | `--group-augment` | corrupt every training image with the groups, labels unchanged |
 | | `--augment-groups NAME ...` | restrict the group subset (all by default) |
 | | `--augment-group-count LOW HIGH` | inclusive applied-groups range (default `(2, 4)`) |
 | | `--no-balance-batches` | fall back from exactly half/half train batches (default) to plain shuffled batches |
@@ -240,7 +246,7 @@ Group augmentation composes with the existing moiré flags
 
 ## Validation guarantees
 
-`tests/test_groups.py` pins the contract:
+`tests/test_groups.py` and `tests/test_augmentation.py` pin the contract:
 
 - every factory builds a named augmenter; every group preserves shape, float32
   dtype and finiteness on `[0, 1]` input;
@@ -249,19 +255,22 @@ Group augmentation composes with the existing moiré flags
 - a `(0, 0)` count is an exact identity;
 - identical seeds reproduce images and recipes, different seeds differ;
 - invalid images, count ranges and group names raise `ValueError`;
-- groups compose after moiré synthesis; the dataset relabels clean images,
-  reproduces across equal seeds, changes pixels relative to plain moiré
-  augmentation, and group-augments both real moiré and clean images that
-  stay clean reproducibly when enabled, each keeping its label
-  (pixel-identical otherwise, straight into the group draw);
+- groups compose after moiré synthesis, and the label contract is total —
+  clean fetches stay label 0, real moiré fetches stay label 1 with or without
+  an extra pattern, and equal seeds reproduce bit-identically (pinned by
+  `check_clean_images_never_become_moire`,
+  `check_real_moire_images_follow_group_augment_flag` and
+  `check_same_seed_is_reproducible` in `tests/test_augmentation.py`; the full
+  on-the-fly guarantees are listed above);
 - group-augmented images flow through the train transform as
   `(3, crop, crop)` tensors.
 
 `tests/test_balanced_batches.py` pins the balanced-batch contract: parity
 labels and the `2 * max(pool)` length, exact half/half batches through a real
-DataLoader (also with workers and unbalanced sources), `augment_prob`
-semantics per parity, sampler adjacency / reproducibility / per-epoch
-reshuffle, `ValueError` on empty pools, and unchanged legacy behavior when
+DataLoader (also with workers and unbalanced sources), `moire_augment_prob`
+semantics per parity (clean slots never synthesized, moire slots real
+sources), sampler adjacency / reproducibility / per-epoch reshuffle,
+`ValueError` on empty pools, and unchanged legacy behavior when
 `balanced=False`.
 
 ## Tuning
@@ -285,12 +294,12 @@ reshuffle, `ValueError` on empty pools, and unchanged legacy behavior when
   values on float arrays, so pepper would turn into white specks after the
   `[0, 1]` clipping. `CoarseDropout` / `Dropout` cover the dead-pixel look.
 - **Groups run after moiré synthesis whenever synthesis happens, never
-  before**: the moiré pattern itself must be degraded the way real capture
-  degrades it, not bypassed. Real moiré inputs and clean inputs that stay
-  clean skip synthesis but still pass through the group decision
-  afterwards, with their labels unchanged.
+  before**: the moiré pattern — innate or synthesized — must be degraded the
+  way real capture degrades it, not bypassed. Clean inputs skip synthesis
+  entirely but still pass through the group decision afterwards, with their
+  labels unchanged.
 - Group augmentation never writes to source files; only in-memory copies
   (training) or new output files (sample generation) are affected. Offline
-  sample generation still consumes clean sources only — the real-moiré and
-  stay-clean branches of the flow above exist in the training dataset
-  alone.
+  sample generation still consumes clean sources only — the real-moiré
+  passthrough and clean-fetch branches of the flow above exist in the
+  training dataset alone.

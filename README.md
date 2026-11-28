@@ -135,23 +135,25 @@ manifest seed), `--sampling`, `--groups` (sample generation), `--num-scenes`,
 
 ## Dataset and splits
 
-The baseline consumes the local LCDMoire subset as two index-aligned folder
-pools configured in `src/config.py` — `CLEAN_IMAGE_FOLDERS` (clean / gt) and
-`MOIRE_IMAGE_FOLDERS` (real moire) — pooling the physical `train/` and `test/`
-subfolders. Every scene exists as a filename-matched gt / moire twin pair;
-`split_train_val_test` pools all pairs, shuffles them at pair level with the
-training seed and splits them 80 / 10 / 10 into train / val / test
-(≈ 5056 / 632 / 632 samples), so twins never leak across splits. The exact
-split is recorded in `split_manifest.json` next to the trained model, and
-evaluation re-derives the test portion from it. Full details:
-[`docs/dataset.md`](docs/dataset.md).
+The baseline consumes two **independent per-class folder pools** configured in
+`src/config.py` — `CLEAN_IMAGE_FOLDERS` (65 folders, 3583 clean / gt images)
+and `MOIRE_IMAGE_FOLDERS` (104 folders, 3545 real-moire images) — with no
+pairing between them. `split_train_val_test` groups each class into split
+units (small folders atomic, shared scene stems merged), shuffles the two unit
+streams separately with `seed` / `seed + 1` and cuts each 80 / 10 / 10 into
+train / val / test — 5676 / 688 / 764 samples (train 2844 clean + 2832 moire:
+near 50 / 50 by construction, exactly 50 / 50 per train batch via balanced
+batches). The split is recorded in `split_manifest.json` (algorithm marker
+`per_class_units_v1`) next to the trained model; evaluation re-derives the
+test portion from it and rejects a manifest written by a different split
+algorithm. Full details: [`docs/dataset.md`](docs/dataset.md).
 
 ## Documentation
 
 Detailed design documents live in [`docs/`](docs/):
 
-- [`docs/dataset.md`](docs/dataset.md) — the dataset source pools and the pooled train / val / test split: index-aligned clean/moire folder lists, the pair-level seeded shuffle, the 0.8/0.1/0.1 fractions, the split manifest and how training / evaluation consume it.
-- [`docs/augmentation.md`](docs/augmentation.md) — the augmentation pipeline: how clean screen photographs become labeled moiré training samples through weighted type sampling, procedural moiré synthesis, and the six seeded capture-style augmentation groups, with flow diagrams, the `apply_group_augmentation` algorithm, CLI flags, and a tuning guide.
+- [`docs/dataset.md`](docs/dataset.md) — the dataset source pools and the per-class train / val / test split: the independent clean/moire folder pools, split units, the per-class seeded unit shuffles, the 0.8/0.1/0.1 fractions, the split manifest and how training / evaluation consume it.
+- [`docs/augmentation.md`](docs/augmentation.md) — the label-preserving, class-aware augmentation pipeline: weighted type sampling and procedural moiré synthesis that only ever adds a pattern to moire-class fetches, plus the six seeded capture-style augmentation groups that corrupt pixels without ever moving the clean/moire label, with flow diagrams, the `apply_group_augmentation` algorithm, CLI flags, and a tuning guide.
 - [`docs/moire_types.md`](docs/moire_types.md) — the canonical catalogue of the nine moiré effect types: physical causes, visual signatures, prevalence weights, and their mapping onto the synthesis generators.
 
 ## Roadmap
